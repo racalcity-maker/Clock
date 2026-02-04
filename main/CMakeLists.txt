@@ -1,0 +1,85 @@
+set(HELIX_DIR "third_party/helix")
+file(GLOB HELIX_SRCS RELATIVE ${CMAKE_CURRENT_LIST_DIR} "${HELIX_DIR}/*.c")
+
+idf_component_register(
+    SRCS
+        "app/app_main.c"
+        "app/alarm_actions.c"
+        "app/alarm_playback.c"
+        "app/ui_display_task.c"
+        "app/ui_input.c"
+        "app/ui_input_handlers.c"
+        "app/ui_menu.c"
+        "app/ui_mode_manager.c"
+        "app/ui_time_setting.c"
+        "clock/clock_time.c"
+        "clock/alarm_timer.c"
+        "display/display_74hc595.c"
+        "display/display_bt_anim.c"
+        "display/display_ui.c"
+        "audio/alarm_sound.c"
+        "audio/audio_eq.c"
+        "audio/audio_owner.c"
+        "audio/audio_pcm5102.c"
+        "audio/audio_player.c"
+        "audio/audio_spectrum.c"
+        "audio/audio_tones.c"
+        "audio/helix_mp3_wrapper.c"
+        "audio/helix_shim.c"
+        ${HELIX_SRCS}
+        "connectivity/bt_app_core.c"
+        "connectivity/bt_app_av.c"
+        "connectivity/bt_avrc.c"
+        "connectivity/bluetooth_sink.c"
+        "connectivity/wifi_ntp.c"
+        "connectivity/web_config.c"
+        "input/adc_keys.c"
+        "input/encoder.c"
+        "led/led_indicator.c"
+        "led/led_strip_encoder.c"
+        "storage/storage_sd_spi.c"
+        "config/config_store.c"
+        "config/config_owner.c"
+        "power/power_manager.c"
+    INCLUDE_DIRS "."
+        "app"
+        "board"
+        "config"
+        "clock"
+        "display"
+        "audio"
+        "connectivity"
+        "input"
+        "led"
+        "storage"
+        "power"
+        "${HELIX_DIR}"
+        "${HELIX_DIR}/utils"
+    PRIV_INCLUDE_DIRS
+        "${HELIX_DIR}"
+        "${IDF_PATH}/components/bt/host/bluedroid/stack/include"
+        "${IDF_PATH}/components/bt/host/bluedroid/common/include"
+        "${IDF_PATH}/components/bt/common/include"
+    REQUIRES
+        esp_driver_i2s
+        nvs_flash
+        esp_http_server
+        esp_timer
+        esp_event
+        esp_netif
+        esp_wifi
+        esp_driver_gpio
+        esp_driver_rmt
+        esp_driver_spi
+        fatfs
+        vfs
+        lwip
+    PRIV_REQUIRES
+        bt
+        esp_driver_ledc
+        esp_adc
+        esp_coex
+        esp_ringbuf
+)
+
+target_compile_definitions(${COMPONENT_LIB} PRIVATE AUDIO_HAVE_HELIX=1)

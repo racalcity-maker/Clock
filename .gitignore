@@ -1,0 +1,31 @@
+# ESP-IDF build output
+/build/
+/old/
+*.zip
+
+# IDE/local settings
+/.vscode/
+
+# CMake/Ninja local cache (if generated in project root)
+/CMakeCache.txt
+/CMakeFiles/
+/cmake_install.cmake
+/compile_commands.json
+/build.ninja
+/.ninja_log
+/.ninja_deps
+
+# Generated local config backups
+/sdkconfig.old
+/sdkconfig.bak
+
+# Common temp/log files
+*.log
+*.tmp
+*.swp
+*.swo
+*.bak
+
+# OS noise
+.DS_Store
+Thumbs.db
