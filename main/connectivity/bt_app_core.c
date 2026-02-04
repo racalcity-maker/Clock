@@ -23,7 +23,6 @@
 #define RINGBUF_HIGHEST_WATER_LEVEL    (64 * 1024)
 #define RINGBUF_PREFETCH_START_BYTES   (40 * 1024)
 #define RINGBUF_RESUME_WATER_LEVEL     (24 * 1024)
-#define RINGBUF_PREFETCH_PACKET_COUNT  12
 #define RINGBUF_MIN_WATER_LEVEL        (24 * 1024)
 #define BT_I2S_CHUNK_BYTES             (240 * 6)
 #define BT_I2S_WRITE_TIMEOUT_MS        50
@@ -67,11 +66,9 @@ static uint8_t *s_ringbuf_storage = NULL;
 static size_t s_ringbuf_size = 0;
 static size_t s_prefetch_start_bytes = 0;
 static size_t s_resume_water_level = 0;
-static size_t s_prefetch_packet_target = 0;
 static size_t s_ringbuf_head = 0;
 static size_t s_ringbuf_tail = 0;
 static size_t s_ringbuf_count = 0;
-static size_t s_prefetch_packets = 0;
 static uint32_t s_ringbuf_gen = 0;
 static bool s_ringbuf_enabled = false;
 static SemaphoreHandle_t s_ringbuf_mutex = NULL;
@@ -158,15 +155,6 @@ static bool bt_ringbuf_ensure_init(void)
             }
         }
 
-        s_prefetch_packet_target = RINGBUF_PREFETCH_PACKET_COUNT;
-        if (s_ringbuf_size < 24 * 1024) {
-            s_prefetch_packet_target = 4;
-        } else if (s_ringbuf_size < 32 * 1024) {
-            s_prefetch_packet_target = 6;
-        } else if (s_ringbuf_size < 48 * 1024) {
-            s_prefetch_packet_target = 8;
-        }
-
     }
 
     xSemaphoreGive(s_ringbuf_mutex);
@@ -178,7 +166,6 @@ static void bt_ringbuf_reset_locked(void)
     s_ringbuf_head = 0;
     s_ringbuf_tail = 0;
     s_ringbuf_count = 0;
-    s_prefetch_packets = 0;
     ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;
     s_ringbuf_gen++;
 }
@@ -255,15 +242,6 @@ bool bt_app_core_reserve_ringbuffer(size_t size)
         }
     }
 
-    s_prefetch_packet_target = RINGBUF_PREFETCH_PACKET_COUNT;
-    if (s_ringbuf_size < 24 * 1024) {
-        s_prefetch_packet_target = 4;
-    } else if (s_ringbuf_size < 32 * 1024) {
-        s_prefetch_packet_target = 6;
-    } else if (s_ringbuf_size < 48 * 1024) {
-        s_prefetch_packet_target = 8;
-    }
-
     xSemaphoreGive(s_ringbuf_mutex);
     return true;
 }
@@ -289,7 +267,6 @@ void bt_app_core_release_ringbuffer(void)
     s_ringbuf_head = 0;
     s_ringbuf_tail = 0;
     s_ringbuf_count = 0;
-    s_prefetch_packets = 0;
     ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;
     s_ringbuf_gen++;
 }
@@ -409,7 +386,6 @@ static void bt_i2s_task_handler(void *arg)
                     if (s_ringbuf_mutex && xSemaphoreTake(s_ringbuf_mutex, portMAX_DELAY) == pdTRUE) {
                         if (ringbuffer_mode != RINGBUFFER_MODE_PREFETCHING) {
                             ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;
-                            s_prefetch_packets = 0;
                             mode_prefetch_changed = true;
                         }
                         xSemaphoreGive(s_ringbuf_mutex);
@@ -590,7 +566,6 @@ void bt_i2s_task_start_up(void)
     }
     if (xSemaphoreTake(s_ringbuf_mutex, portMAX_DELAY) == pdTRUE) {
         ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;
-        s_prefetch_packets = 0;
         s_ringbuf_head = 0;
         s_ringbuf_tail = 0;
         s_ringbuf_count = 0;
@@ -602,7 +577,7 @@ void bt_i2s_task_start_up(void)
                                          "BtI2STask",
                                          4096,
                                          NULL,
-                                         configMAX_PRIORITIES - 3,
+                                         9,
                                          &s_bt_i2s_task_handle);
         if (created != pdPASS) {
             ESP_LOGE(BT_APP_CORE_TAG, "BtI2STask create failed");
@@ -665,7 +640,6 @@ size_t write_ringbuf(const uint8_t *data, size_t size)
         s_ringbuf_head = 0;
         s_ringbuf_tail = 0;
         s_ringbuf_count = 0;
-        s_prefetch_packets = 0;
         ringbuffer_mode = RINGBUFFER_MODE_PREFETCHING;
         xSemaphoreGive(s_ringbuf_mutex);
         bt_app_core_inc_error();
@@ -715,12 +689,9 @@ size_t write_ringbuf(const uint8_t *data, size_t size)
     s_ringbuf_count += to_write;
 
     if (ringbuffer_mode == RINGBUFFER_MODE_PREFETCHING && to_write > 0) {
-        s_prefetch_packets++;
         bool reached_bytes = s_ringbuf_count >= s_prefetch_start_bytes;
-        bool reached_packets = s_prefetch_packets >= s_prefetch_packet_target;
-        if (reached_bytes || reached_packets) {
+        if (reached_bytes) {
             ringbuffer_mode = RINGBUFFER_MODE_PROCESSING;
-            s_prefetch_packets = 0;
             log_mode_processing_prefetch = true;
             give_i2s_semaphore = true;
         }

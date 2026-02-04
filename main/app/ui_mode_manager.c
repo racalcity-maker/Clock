@@ -421,7 +421,7 @@ static void enter_bluetooth_mode(void)
 {
     display_pause_refresh(true);
     display_set_text("    ", false);
-    ESP_LOGI(TAG, "bt switch: stop tasks: display_task, power_monitor");
+    ESP_LOGD(TAG, "bt switch: stop tasks: display_task, power_monitor");
     ui_display_task_pause();
     power_manager_pause();
     stop_player_and_flush();
@@ -451,7 +451,7 @@ static void enter_bluetooth_mode(void)
     } else {
         audio_spectrum_enable(false);
     }
-    ESP_LOGI(TAG, "bt switch: start tasks: power_monitor, display_task");
+    ESP_LOGD(TAG, "bt switch: start tasks: power_monitor, display_task");
     power_manager_resume();
     ui_display_task_resume();
     if (s_display_brightness) {
@@ -462,7 +462,7 @@ static void enter_bluetooth_mode(void)
 #endif
     display_pause_refresh(false);
     bt_sink_set_discoverable(true);
-    ESP_LOGI(TAG, "bt autoconnect disabled; waiting for source");
+    ESP_LOGD(TAG, "bt autoconnect disabled; waiting for source");
 }
 
 static void stop_player_and_flush(void)

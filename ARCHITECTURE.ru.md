@@ -125,3 +125,8 @@
 
 ## ¬ход сборки
 - `main/CMakeLists.txt` регистрирует все модули.
+
+## ????????? ?????????
+- BT prefetch start is deterministic: playback starts only by byte watermark (`s_prefetch_start_bytes`).
+- `BtI2STask` priority is fixed to `9`.
+- Runtime logging is reduced: mode switch + heap stay at INFO, transition details are DEBUG.

@@ -6,6 +6,7 @@ This project is an ESP32 clock/audio device with 4x7-segment display (74HC595), 
 - `app_main.c` boots NVS/config, initializes subsystems, starts tasks, and sets the initial UI mode (clock).
 - UI mode switching is centralized in `app_set_ui_mode()` and executed via `ui_cmd_task` to avoid doing it in ISR/input context.
 - Rendering is done by the display task, which sets time by default and overlays animation/text based on mode and events.
+- Runtime logs are intentionally trimmed: mode changes and heap snapshots stay at `INFO`, transition details are mostly `DEBUG`.
 - Runtime resources are mode-scoped:
   - Clock/Player modes stop BT streaming task, deinit BT sink, and release BT ring buffer memory.
   - Bluetooth mode stops player + flushes I2S, unmounts SD, pauses display/power tasks, and reserves BT ring buffer.
@@ -59,6 +60,8 @@ This project is an ESP32 clock/audio device with 4x7-segment display (74HC595), 
   - A2DP callbacks and stream configuration, forwards audio data to ring buffer.
 - `bt_app_core.*`
   - Ring buffer + I2S writer task for BT audio.
+  - Prefetch start is deterministic: BT playback starts only after ringbuffer reaches byte watermark (`s_prefetch_start_bytes`), without packet-count shortcut.
+  - `BtI2STask` runs with fixed priority `9` to avoid starving other app tasks.
   - Feeds `audio_spectrum` for visualization.
 - `bt_avrc.*`
   - AVRCP control/metadata and absolute volume.
