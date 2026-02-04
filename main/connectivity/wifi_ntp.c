@@ -1,6 +1,7 @@
 #include "wifi_ntp.h"
 
 #include "clock_time.h"
+#include "config_owner.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
@@ -20,6 +21,7 @@ static EventGroupHandle_t s_wifi_event_group;
 static bool s_wifi_connected = false;
 static bool s_sntp_started = false;
 static bool s_has_sta = false;
+static bool s_sta_connect_in_progress = false;
 static bool s_sta_netif_created = false;
 static bool s_ap_netif_created = false;
 static bool s_wifi_driver_inited = false;
@@ -35,6 +37,7 @@ static wifi_config_t s_sta_cfg = {0};
 static wifi_config_t s_ap_cfg = {0};
 static uint8_t s_connect_attempts = 0;
 static bool s_web_enabled = false;
+static bool s_ap_mode_active = false;
 static esp_timer_handle_t s_wifi_off_timer = NULL;
 
 #define WIFI_CONNECTED_BIT BIT0
@@ -51,6 +54,11 @@ static bool wifi_try_connect(const char *reason);
 static void wifi_reset_attempts(void);
 static void wifi_start_web_if_ready(void);
 static void wifi_schedule_disable_after_sync(void);
+static esp_err_t wifi_driver_start(void);
+static bool wifi_should_run_ap(void);
+static bool wifi_should_run_sta(void);
+static void wifi_restart_to_ap(void);
+static void wifi_mark_interface_connected(void);
 
 static inline void wifi_clear_connected_bit(void)
 {
@@ -114,7 +122,7 @@ static void sntp_sync_cb(struct timeval *tv)
 static void wifi_reconnect_cb(void *arg)
 {
     (void)arg;
-    if (!s_wifi_enabled || !s_has_sta || s_wifi_connected) {
+    if (!s_wifi_enabled || !wifi_should_run_sta() || s_wifi_connected) {
         return;
     }
     wifi_try_connect("reconnect");
@@ -123,7 +131,7 @@ static void wifi_reconnect_cb(void *arg)
 static void wifi_fast_retry_cb(void *arg)
 {
     (void)arg;
-    if (!s_wifi_enabled || !s_has_sta || s_wifi_connected) {
+    if (!s_wifi_enabled || !wifi_should_run_sta() || s_wifi_connected) {
         return;
     }
     wifi_try_connect("fast");
@@ -131,7 +139,7 @@ static void wifi_fast_retry_cb(void *arg)
 
 static void wifi_start_reconnect_timer(void)
 {
-    if (!s_has_sta) {
+    if (!wifi_should_run_sta()) {
         return;
     }
     if (!s_reconnect_timer) {
@@ -208,26 +216,82 @@ static void wifi_schedule_disable_after_sync(void)
     }
 }
 
+static bool wifi_should_run_ap(void)
+{
+    return s_web_enabled && !s_sta_connect_in_progress;
+}
+
+static bool wifi_should_run_sta(void)
+{
+    if (!s_has_sta) {
+        return false;
+    }
+    if (!s_web_enabled) {
+        return true;
+    }
+    return s_sta_connect_in_progress;
+}
+
+static void wifi_mark_interface_connected(void)
+{
+    if (!s_web_enabled) {
+        return;
+    }
+    s_web_enabled = false;
+    web_config_stop();
+
+    app_config_t cfg;
+    config_store_get(&cfg);
+    if (cfg.web_enabled) {
+        cfg.web_enabled = false;
+        config_owner_request_update(&cfg);
+    }
+}
+
+static void wifi_restart_to_ap(void)
+{
+    if (!s_wifi_enabled) {
+        return;
+    }
+    s_sta_connect_in_progress = false;
+    s_wifi_connected = false;
+    wifi_clear_connected_bit();
+    wifi_reset_attempts();
+    wifi_stop_reconnect_timer();
+    if (s_wifi_driver_inited) {
+        esp_err_t err = esp_wifi_stop();
+        if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_STARTED) {
+            ESP_LOGW(TAG, "wifi stop before ap fallback failed: %s", esp_err_to_name(err));
+        }
+    }
+    wifi_driver_start();
+}
+
 static void wifi_start_web_if_ready(void)
 {
     if (!s_web_enabled || !s_wifi_enabled) {
         return;
     }
-    if (!s_has_sta) {
+    if (s_ap_mode_active) {
         web_config_start();
         return;
     }
-    if (s_wifi_connected) {
+    if (s_wifi_connected && !s_sta_connect_in_progress) {
         web_config_start();
     }
 }
 
 static bool wifi_try_connect(const char *reason)
 {
-    if (!s_wifi_enabled || !s_has_sta || s_wifi_connected) {
+    if (!s_wifi_enabled || !wifi_should_run_sta() || s_wifi_connected) {
         return false;
     }
     if (s_connect_attempts >= WIFI_MAX_CONNECT_ATTEMPTS) {
+        if (s_web_enabled && s_sta_connect_in_progress) {
+            ESP_LOGW(TAG, "wifi attempts exhausted, restoring AP setup mode");
+            wifi_restart_to_ap();
+            return false;
+        }
         ESP_LOGW(TAG, "wifi attempts exhausted, stopping wifi");
         wifi_set_enabled(false);
         return false;
@@ -253,7 +317,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
 
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_set_ps(WIFI_PS_NONE);
-        if (s_wifi_enabled) {
+        if (s_wifi_enabled && wifi_should_run_sta()) {
             wifi_start_reconnect_timer();
         }
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
@@ -273,7 +337,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         }
         s_wifi_connected = false;
         wifi_clear_connected_bit();
-        if (s_wifi_enabled) {
+        if (s_wifi_enabled && wifi_should_run_sta()) {
             wifi_start_reconnect_timer();
         }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
@@ -282,6 +346,11 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
         wifi_stop_reconnect_timer();
         esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+        if (s_sta_connect_in_progress) {
+            s_sta_connect_in_progress = false;
+            wifi_mark_interface_connected();
+            ESP_LOGI(TAG, "wifi provisioning complete, interface disabled");
+        }
         wifi_start_sntp();
         wifi_start_web_if_ready();
     }
@@ -294,6 +363,9 @@ static void wifi_build_configs(const app_config_t *cfg)
 
     s_has_sta = cfg->wifi_ssid[0] != '\0';
     s_web_enabled = cfg->web_enabled;
+    if (!s_has_sta) {
+        s_sta_connect_in_progress = false;
+    }
     if (s_has_sta) {
         strncpy((char *)s_sta_cfg.sta.ssid, cfg->wifi_ssid, sizeof(s_sta_cfg.sta.ssid) - 1);
         strncpy((char *)s_sta_cfg.sta.password, cfg->wifi_pass, sizeof(s_sta_cfg.sta.password) - 1);
@@ -318,18 +390,21 @@ static void wifi_build_configs(const app_config_t *cfg)
 static esp_err_t wifi_driver_start(void)
 {
     esp_err_t err;
+    bool run_ap = wifi_should_run_ap();
+    bool run_sta = wifi_should_run_sta();
 
-    if (!s_web_enabled && !s_has_sta) {
+    if (!run_ap && !run_sta) {
         s_wifi_enabled = false;
+        s_ap_mode_active = false;
         return ESP_OK;
     }
 
-    if (s_has_sta) {
+    if (run_sta) {
         if (!s_sta_netif) {
             s_sta_netif = esp_netif_create_default_wifi_sta();
             s_sta_netif_created = (s_sta_netif != NULL);
         }
-    } else {
+    } else if (run_ap) {
         if (!s_ap_netif) {
             s_ap_netif = esp_netif_create_default_wifi_ap();
             s_ap_netif_created = (s_ap_netif != NULL);
@@ -346,7 +421,7 @@ static esp_err_t wifi_driver_start(void)
         s_wifi_driver_inited = true;
     }
 
-    if (s_has_sta) {
+    if (run_sta) {
         err = esp_wifi_set_mode(WIFI_MODE_STA);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "wifi set mode sta failed: %s", esp_err_to_name(err));
@@ -357,6 +432,7 @@ static esp_err_t wifi_driver_start(void)
             ESP_LOGE(TAG, "wifi set config failed: %s", esp_err_to_name(err));
             return err;
         }
+        s_ap_mode_active = false;
     } else {
         err = esp_wifi_set_mode(WIFI_MODE_AP);
         if (err != ESP_OK) {
@@ -368,6 +444,7 @@ static esp_err_t wifi_driver_start(void)
             ESP_LOGE(TAG, "wifi set ap config failed: %s", esp_err_to_name(err));
             return err;
         }
+        s_ap_mode_active = true;
     }
 
     err = esp_wifi_start();
@@ -377,7 +454,7 @@ static esp_err_t wifi_driver_start(void)
     }
 
     s_wifi_enabled = true;
-    if (s_has_sta) {
+    if (run_sta) {
         wifi_reset_attempts();
         wifi_try_connect("start");
         wifi_start_reconnect_timer();
@@ -431,10 +508,12 @@ esp_err_t wifi_init(const app_config_t *cfg)
     }
 
     ESP_ERROR_CHECK(wifi_driver_start());
-    if (s_has_sta) {
+    if (s_ap_mode_active) {
+        ESP_LOGI(TAG, "wifi ap start");
+    } else if (s_wifi_enabled) {
         ESP_LOGI(TAG, "wifi sta start");
     } else {
-        ESP_LOGI(TAG, "wifi ap start");
+        ESP_LOGI(TAG, "wifi disabled");
     }
 
     clock_time_set_timezone(cfg->tz);
@@ -473,6 +552,8 @@ void wifi_set_enabled(bool enabled)
         }
         wifi_schedule_shutdown();
         s_wifi_connected = false;
+        s_ap_mode_active = false;
+        s_sta_connect_in_progress = false;
         wifi_clear_connected_bit();
         return;
     }
@@ -493,8 +574,18 @@ void wifi_set_web_enabled(bool enabled)
 {
     s_web_enabled = enabled;
     if (!s_web_enabled) {
+        s_sta_connect_in_progress = false;
         web_config_stop();
         if (s_wifi_enabled && s_has_sta) {
+            if (s_ap_mode_active && s_wifi_driver_inited) {
+                esp_err_t stop_err = esp_wifi_stop();
+                if (stop_err != ESP_OK && stop_err != ESP_ERR_WIFI_NOT_STARTED) {
+                    ESP_LOGW(TAG, "wifi stop failed: %s", esp_err_to_name(stop_err));
+                }
+                s_wifi_connected = false;
+                wifi_clear_connected_bit();
+                wifi_driver_start();
+            }
             wifi_request_time_sync();
             wifi_schedule_disable_after_sync();
         } else if (s_wifi_enabled && !s_has_sta) {
@@ -502,8 +593,18 @@ void wifi_set_web_enabled(bool enabled)
         }
         return;
     }
+
+    s_sta_connect_in_progress = false;
     if (!s_wifi_enabled) {
         wifi_set_enabled(true);
+    } else if (!s_ap_mode_active && s_wifi_driver_inited) {
+        esp_err_t stop_err = esp_wifi_stop();
+        if (stop_err != ESP_OK && stop_err != ESP_ERR_WIFI_NOT_STARTED) {
+            ESP_LOGW(TAG, "wifi stop failed: %s", esp_err_to_name(stop_err));
+        }
+        s_wifi_connected = false;
+        wifi_clear_connected_bit();
+        wifi_driver_start();
     }
     wifi_start_web_if_ready();
 }
@@ -522,7 +623,7 @@ bool wifi_wait_for_shutdown(uint32_t timeout_ms)
 
 bool wifi_is_ap_mode(void)
 {
-    return !s_has_sta;
+    return s_ap_mode_active;
 }
 
 bool wifi_get_last_sync_time(time_t *out)
@@ -545,11 +646,17 @@ esp_err_t wifi_update_credentials(const char *ssid, const char *password)
         password = "";
     }
 
+    bool has_new_sta = (ssid[0] != '\0');
     app_config_t cfg = {0};
     cfg.web_enabled = s_web_enabled;
     strncpy(cfg.wifi_ssid, ssid, sizeof(cfg.wifi_ssid) - 1);
     strncpy(cfg.wifi_pass, password, sizeof(cfg.wifi_pass) - 1);
     wifi_build_configs(&cfg);
+    if (s_web_enabled && has_new_sta) {
+        s_sta_connect_in_progress = true;
+    } else if (!has_new_sta) {
+        s_sta_connect_in_progress = false;
+    }
 
     if (!s_wifi_enabled) {
         ESP_LOGI(TAG, "wifi credentials updated (stored)");
@@ -565,6 +672,7 @@ esp_err_t wifi_update_credentials(const char *ssid, const char *password)
         }
     }
     s_wifi_connected = false;
+    s_ap_mode_active = false;
     wifi_clear_connected_bit();
 
     esp_err_t err = wifi_driver_start();

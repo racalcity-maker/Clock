@@ -683,7 +683,7 @@ size_t write_ringbuf(const uint8_t *data, size_t size)
             if (!s_bt_mute_active) {
                 bt_app_core_set_mute(true);
             }
-            ESP_LOGW(BT_APP_CORE_TAG, "ringbuffer overflowed, reset buffer");
+            ESP_LOGD(BT_APP_CORE_TAG, "ringbuffer overflowed, reset buffer");
             return 0;
         }
     }
@@ -696,7 +696,7 @@ size_t write_ringbuf(const uint8_t *data, size_t size)
         if (!s_bt_mute_active) {
             bt_app_core_set_mute(true);
         }
-        ESP_LOGW(BT_APP_CORE_TAG, "ringbuffer overflowed, reset buffer");
+        ESP_LOGD(BT_APP_CORE_TAG, "ringbuffer overflowed, reset buffer");
         return 0;
     }
 
@@ -737,7 +737,7 @@ size_t write_ringbuf(const uint8_t *data, size_t size)
                 eTaskState state = eTaskGetState(s_bt_i2s_task_handle);
                 if (state != eDeleted) {
                     UBaseType_t watermark = uxTaskGetStackHighWaterMark(s_bt_i2s_task_handle);
-                    ESP_LOGE(BT_APP_CORE_TAG,
+                    ESP_LOGD(BT_APP_CORE_TAG,
                              "semaphore give failed (i2s_task=%p state=%d hwm=%u mode=%u count=%u)",
                              (void *)s_bt_i2s_task_handle,
                              (int)state,

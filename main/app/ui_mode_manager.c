@@ -28,6 +28,7 @@
 #define UI_MODE_TEST_CYCLE 0
 #define UI_MODE_HEAP_LOG 0
 #define UI_MODE_TEST_INTERVAL_MS 15000
+#define UI_MODE_HEAP_LOG_INTERVAL_MS (5 * 60 * 1000)
 
 static const char *TAG = "ui_mode";
 
@@ -51,6 +52,7 @@ static TaskHandle_t s_heap_log_task = NULL;
 static bool s_web_stop_pending = false;
 static volatile int64_t s_ui_busy_until_us = 0;
 static volatile bool s_ui_busy_force = false;
+static int64_t s_next_heap_log_us = 0;
 #if UI_MODE_TEST_CYCLE
 static TaskHandle_t s_ui_test_task = NULL;
 #endif
@@ -88,6 +90,20 @@ static void enter_player_mode(void);
 static void enter_bluetooth_mode(void);
 static void stop_player_and_flush(void);
 static void wait_for_heap_release(uint32_t settle_ms, uint32_t timeout_ms);
+static void ui_mode_log_heap(const char *tag);
+
+static void ui_mode_log_heap(const char *tag)
+{
+    multi_heap_info_t info;
+    heap_caps_get_info(&info, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t bt_rb = bt_app_core_get_ringbuffer_size();
+    ESP_LOGI(TAG, "heap %s: free=%u internal=%u largest_int=%u bt_rb=%u",
+             tag ? tag : "-",
+             (unsigned)info.total_free_bytes,
+             (unsigned)info.total_free_bytes,
+             (unsigned)info.largest_free_block,
+             (unsigned)bt_rb);
+}
 
 static void ui_cmd_start(void)
 {
@@ -178,6 +194,7 @@ void ui_mode_manager_init(app_config_t *cfg, uint8_t *display_brightness, bool *
 void ui_mode_manager_start(void)
 {
     ui_cmd_start();
+    s_next_heap_log_us = esp_timer_get_time() + ((int64_t)UI_MODE_HEAP_LOG_INTERVAL_MS * 1000);
 #if UI_MODE_HEAP_LOG
     heap_log_start();
 #endif
@@ -233,17 +250,25 @@ static void ui_cmd_task(void *arg)
 {
     (void)arg;
     ui_cmd_t cmd;
-    while (xQueueReceive(s_ui_cmd_queue, &cmd, portMAX_DELAY) == pdTRUE) {
-        if (cmd.type == UI_CMD_SET_MODE) {
-            app_set_ui_mode(cmd.mode);
-        } else if (cmd.type == UI_CMD_INPUT_ENC) {
-            if (s_encoder_cb) {
-                s_encoder_cb(cmd.data.enc);
+    while (1) {
+        if (xQueueReceive(s_ui_cmd_queue, &cmd, pdMS_TO_TICKS(1000)) == pdTRUE) {
+            if (cmd.type == UI_CMD_SET_MODE) {
+                app_set_ui_mode(cmd.mode);
+            } else if (cmd.type == UI_CMD_INPUT_ENC) {
+                if (s_encoder_cb) {
+                    s_encoder_cb(cmd.data.enc);
+                }
+            } else if (cmd.type == UI_CMD_INPUT_ADC) {
+                if (s_adc_cb) {
+                    s_adc_cb(cmd.data.adc.key, cmd.data.adc.event);
+                }
             }
-        } else if (cmd.type == UI_CMD_INPUT_ADC) {
-            if (s_adc_cb) {
-                s_adc_cb(cmd.data.adc.key, cmd.data.adc.event);
-            }
+        }
+
+        int64_t now = esp_timer_get_time();
+        if (s_next_heap_log_us == 0 || now >= s_next_heap_log_us) {
+            ui_mode_log_heap("periodic");
+            s_next_heap_log_us = now + ((int64_t)UI_MODE_HEAP_LOG_INTERVAL_MS * 1000);
         }
     }
 }
@@ -336,6 +361,7 @@ void app_set_ui_mode(app_ui_mode_t mode)
     app_ui_set_busy(false);
     app_ui_busy_for_ms(800);
     ESP_LOGI(TAG, "ui mode set: %s", label);
+    ui_mode_log_heap("mode_switch");
     display_ui_show_text(label, 800);
 }
 
@@ -476,7 +502,7 @@ static void heap_log_task(void *arg)
 
 void ui_mode_manager_heap_snapshot(const char *tag)
 {
-    (void)tag;
+    ui_mode_log_heap(tag);
 }
 
 #if UI_MODE_TEST_CYCLE

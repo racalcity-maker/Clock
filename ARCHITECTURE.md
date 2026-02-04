@@ -9,6 +9,10 @@ This project is an ESP32 clock/audio device with 4x7-segment display (74HC595), 
 - Runtime resources are mode-scoped:
   - Clock/Player modes stop BT streaming task, deinit BT sink, and release BT ring buffer memory.
   - Bluetooth mode stops player + flushes I2S, unmounts SD, pauses display/power tasks, and reserves BT ring buffer.
+- Wi-Fi provisioning is user-driven:
+  - Enabling web interface (`InOn`) starts AP setup mode only (no STA connect attempt).
+  - Saving credentials in web UI switches AP -> STA attempt.
+  - On successful STA connect, interface flag is auto-cleared and AP/web setup is stopped.
 
 ## Core modules
 - `app_main.c`
@@ -73,6 +77,10 @@ This project is an ESP32 clock/audio device with 4x7-segment display (74HC595), 
 ## Connectivity and web UI
 - `wifi_ntp.*`
   - Wi-Fi lifecycle + time sync (NTP).
+  - Supports two explicit runtime modes:
+    - Provisioning mode: AP + web only, started manually from menu.
+    - Normal mode: STA for NTP/runtime connectivity.
+  - Provisioning fallback: if STA connect fails during AP->STA handoff, returns to AP setup.
 - `web_config.*`
   - Minimal Wi-Fi config UI (SSID/pass/reset only).
 

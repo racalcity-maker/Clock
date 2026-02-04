@@ -201,7 +201,7 @@ static void bt_link_policy_disable_sniff(const esp_bd_addr_t bda)
     memcpy(bda_copy, bda, sizeof(bda_copy));
     tBTM_STATUS st = BTM_SetLinkPolicy(bda_copy, &policy);
     if (st != BTM_SUCCESS) {
-        ESP_LOGW(TAG, "bt link policy set failed: %d", st);
+        ESP_LOGD(TAG, "bt link policy set failed: %d", st);
     }
 }
 
