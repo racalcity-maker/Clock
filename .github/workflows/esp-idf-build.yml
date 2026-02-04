@@ -1,0 +1,33 @@
+name: ESP-IDF Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Firmware (ESP32, IDF 5.3.3)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.3.3
+          target: esp32
+          command: idf.py build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: clock-firmware
+          path: |
+            build/clock.bin
+            build/clock.elf
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
