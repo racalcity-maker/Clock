@@ -137,7 +137,6 @@ void app_main(void)
     display_set_static(true);
     led_indicator_init();
     audio_init();
-    alarm_sound_init();
     alarm_playback_init();
     audio_eq_set_steps(s_cfg.eq_low, s_cfg.eq_high);
     audio_set_volume(app_volume_steps_to_byte(s_cfg.volume));

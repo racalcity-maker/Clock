@@ -74,6 +74,14 @@ static bool alarm_is_regular_file(const char *path)
     return S_ISREG(st.st_mode);
 }
 
+static bool alarm_sound_ensure_init(void)
+{
+    if (!s_cmd_queue) {
+        alarm_sound_init();
+    }
+    return (s_cmd_queue != NULL);
+}
+
 uint8_t alarm_sound_get_file_count(void)
 {
     if (!storage_sd_is_mounted()) {
@@ -379,6 +387,7 @@ void alarm_sound_init(void)
         ESP_LOGW(TAG, "alarm task create failed");
         vQueueDelete(s_cmd_queue);
         s_cmd_queue = NULL;
+        s_task = NULL;
     }
 }
 
@@ -411,7 +420,7 @@ bool alarm_sound_is_playing(void)
 
 bool alarm_sound_play_index(uint8_t index, uint8_t volume_steps, uint32_t preview_ms)
 {
-    if (!s_cmd_queue) {
+    if (!alarm_sound_ensure_init()) {
         return false;
     }
     if (!audio_owner_acquire(AUDIO_OWNER_ALARM, true)) {
@@ -431,7 +440,7 @@ bool alarm_sound_play_index(uint8_t index, uint8_t volume_steps, uint32_t previe
 
 bool alarm_sound_play_builtin(uint8_t tone, uint8_t volume_steps, uint32_t duration_ms)
 {
-    if (!s_cmd_queue) {
+    if (!alarm_sound_ensure_init()) {
         return false;
     }
     if (!audio_owner_acquire(AUDIO_OWNER_ALARM, true)) {
