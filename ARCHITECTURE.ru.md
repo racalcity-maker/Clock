@@ -1,132 +1,120 @@
-# Архитектура
+п»ї# РђСЂС…РёС‚РµРєС‚СѓСЂР°
 
-Проект — ESP32 устройство «часы/аудио» с 4x7?сегментным дисплеем (74HC595), Bluetooth A2DP приёмником, локальным SD?плеером, Wi?Fi конфигом/синхронизацией времени и будильниками. Прошивка разбита на модули в `main/`.
+РџСЂРѕРµРєС‚ вЂ” ESP32 СѓСЃС‚СЂРѕР№СЃС‚РІРѕ В«С‡Р°СЃС‹/Р°СѓРґРёРѕВ» СЃ 4x7-СЃРµРіРјРµРЅС‚РЅС‹Рј РґРёСЃРїР»РµРµРј (74HC595), Bluetooth A2DP РїСЂРёС‘РјРЅРёРєРѕРј, SD РїР»РµРµСЂРѕРј, Wi-Fi РєРѕРЅС„РёРіРѕРј/СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёРµР№ РІСЂРµРјРµРЅРё Рё Р±СѓРґРёР»СЊРЅРёРєР°РјРё. РџСЂРѕС€РёРІРєР° СЂР°Р·Р±РёС‚Р° РЅР° РјРѕРґСѓР»Рё РІ `main/`.
 
-## Общая логика
-- `app_main.c` загружает NVS/конфиг, инициализирует подсистемы, запускает задачи и выставляет стартовый UI?режим (часы).
-- Переключение UI?режимов централизовано в `app_set_ui_mode()` и выполняется через `ui_cmd_task`, чтобы не делать это из ISR/обработчиков ввода.
-- Отрисовка выполняется задачей дисплея: по умолчанию время, поверх — оверлеи/анимации/тексты по событиям.
+## РћР±С‰Р°СЏ Р»РѕРіРёРєР°
+- `app_main.c` Р·Р°РіСЂСѓР¶Р°РµС‚ NVS/РєРѕРЅС„РёРі, РёРЅРёС†РёР°Р»РёР·РёСЂСѓРµС‚ РїРѕРґСЃРёСЃС‚РµРјС‹, Р·Р°РїСѓСЃРєР°РµС‚ Р·Р°РґР°С‡Рё Рё РІС‹СЃС‚Р°РІР»СЏРµС‚ СЃС‚Р°СЂС‚РѕРІС‹Р№ UI-СЂРµР¶РёРј.
+- РџРµСЂРµРєР»СЋС‡РµРЅРёРµ UI-СЂРµР¶РёРјРѕРІ С†РµРЅС‚СЂР°Р»РёР·РѕРІР°РЅРѕ РІ `app_set_ui_mode()` Рё РІС‹РїРѕР»РЅСЏРµС‚СЃСЏ С‡РµСЂРµР· `ui_cmd_task`, С‡С‚РѕР±С‹ РЅРµ РґРµР»Р°С‚СЊ СЌС‚Рѕ РёР· ISR/РѕР±СЂР°Р±РѕС‚С‡РёРєРѕРІ РІРІРѕРґР°.
+- РћС‚СЂРёСЃРѕРІРєР° РІС‹РїРѕР»РЅСЏРµС‚СЃСЏ Р·Р°РґР°С‡РµР№ РґРёСЃРїР»РµСЏ: РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ РІСЂРµРјСЏ, РїРѕРІРµСЂС… вЂ” РѕРІРµСЂР»РµРё/Р°РЅРёРјР°С†РёРё/С‚РµРєСЃС‚С‹ РїРѕ СЃРѕР±С‹С‚РёСЏРј.
+- Р›РѕРіРё СѓСЂРµР·Р°РЅС‹: СЃРјРµРЅР° СЂРµР¶РёРјР° Рё СЃРЅРёРјРєРё РїР°РјСЏС‚Рё РѕСЃС‚Р°СЋС‚СЃСЏ РІ `INFO`, РґРµС‚Р°Р»Рё вЂ” РІ `DEBUG`.
+- Р•СЃР»Рё РІСЂРµРјСЏ РµС‰С‘ РЅРµ Р·Р°РґР°РЅРѕ, РґРёСЃРїР»РµР№ РїРѕРєР°Р·С‹РІР°РµС‚ `--:--` (С‚РёСЂРµ СЃ РґРІРѕРµС‚РѕС‡РёРµРј).
+- РќР°СЃС‚СЂРѕР№РєР° Wi-Fi Р·Р°РїСѓСЃРєР°РµС‚СЃСЏ РІСЂСѓС‡РЅСѓСЋ С‡РµСЂРµР· РјРµРЅСЋ Рё СЂР°Р±РѕС‚Р°РµС‚ РІ СЂРµР¶РёРјРµ AP-only.
 
-## Основные модули
+## РћСЃРЅРѕРІРЅС‹Рµ РјРѕРґСѓР»Рё
 - `app_main.c`
-  - Оркестрация запуска.
-  - Хранит глобальный конфиг (`app_config_t`) и состояние UI.
+  - РћСЂРєРµСЃС‚СЂР°С†РёСЏ Р·Р°РїСѓСЃРєР°.
+  - РҐСЂР°РЅРёС‚ РіР»РѕР±Р°Р»СЊРЅС‹Р№ РєРѕРЅС„РёРі (`app_config_t`) Рё СЃРѕСЃС‚РѕСЏРЅРёРµ UI.
 - `app_control.h/c`
-  - Общие enum/хелперы режимов (`app_get_ui_mode`, `app_set_ui_mode`, `app_request_ui_mode`).
+  - РћР±С‰РёРµ enum/С…РµР»РїРµСЂС‹ СЂРµР¶РёРјРѕРІ (`app_get_ui_mode`, `app_set_ui_mode`, `app_request_ui_mode`).
 - `config_store.*`
-  - Загрузка/сохранение настроек (громкость, EQ, яркость, будильник, таймзона и т.д.).
+  - Р—Р°РіСЂСѓР·РєР°/СЃРѕС…СЂР°РЅРµРЅРёРµ РЅР°СЃС‚СЂРѕРµРє (РіСЂРѕРјРєРѕСЃС‚СЊ, EQ, СЏСЂРєРѕСЃС‚СЊ, Р±СѓРґРёР»СЊРЅРёРє, С‚Р°Р№РјР·РѕРЅР° Рё С‚.Рґ.).
 - `config_owner.*`
-  - Единственный «owner task» для записи `app_config_t`.
-  - Все runtime?записи идут через `config_owner_request_update`.
+  - Р•РґРёРЅСЃС‚РІРµРЅРЅС‹Р№ В«owner taskВ» РґР»СЏ Р·Р°РїРёСЃРё `app_config_t`.
+  - Р’СЃРµ runtime-Р·Р°РїРёСЃРё РёРґСѓС‚ С‡РµСЂРµР· `config_owner_request_update`.
 - `clock_time.*`
-  - RTC/таймзона и выдача текущего времени для дисплея.
+  - RTC/С‚Р°Р№РјР·РѕРЅР° Рё РІС‹РґР°С‡Р° С‚РµРєСѓС‰РµРіРѕ РІСЂРµРјРµРЅРё.
 
-## Дисплей
+## Р”РёСЃРїР»РµР№
 - `display_74hc595.*`
-  - Низкоуровневый драйвер (битбэнг или SPI).
-  - Яркость через OE PWM (LEDC) или программный PWM (`esp_timer`).
+  - РќРёР·РєРѕСѓСЂРѕРІРЅРµРІС‹Р№ РґСЂР°Р№РІРµСЂ (Р±РёС‚Р±СЌРЅРі РёР»Рё SPI).
+  - РЇСЂРєРѕСЃС‚СЊ С‡РµСЂРµР· OE PWM (LEDC) РёР»Рё РїСЂРѕРіСЂР°РјРјРЅС‹Р№ PWM (`esp_timer`).
 - `display_ui.*`
-  - Базовое время и оверлеи.
-  - `display_ui_render()` решает, что показывать: оверлей или время.
+  - Р‘Р°Р·РѕРІРѕРµ РІСЂРµРјСЏ Рё РѕРІРµСЂР»РµРё.
+  - `display_ui_render()` СЂРµС€Р°РµС‚, С‡С‚Рѕ РїРѕРєР°Р·С‹РІР°С‚СЊ: РѕРІРµСЂР»РµР№ РёР»Рё РІСЂРµРјСЏ.
 - `display_bt_anim.*`
-  - Анимации в BT?режиме на основе `audio_spectrum`.
+  - РђРЅРёРјР°С†РёРё РІ BT-СЂРµР¶РёРјРµ РЅР° РѕСЃРЅРѕРІРµ `audio_spectrum`.
 - `ui_display_task.*`
-  - Отдельная задача обновления времени/оверлеев.
+  - РћС‚РґРµР»СЊРЅР°СЏ Р·Р°РґР°С‡Р° РѕР±РЅРѕРІР»РµРЅРёСЏ РІСЂРµРјРµРЅРё/РѕРІРµСЂР»РµРµРІ.
 
-## Аудио и Bluetooth
+## РђСѓРґРёРѕ Рё Bluetooth
 - `audio_pcm5102.*`
-  - I2S вывод (PCM5102), тон/будильник, громкость.
+  - I2S РІС‹РІРѕРґ (PCM5102), С‚РѕРЅ/Р±СѓРґРёР»СЊРЅРёРє, РіСЂРѕРјРєРѕСЃС‚СЊ.
 - `audio_eq.*`
-  - 2?полосный shelving?EQ в `audio_i2s_write`.
-  - Low shelf @ 150 Гц, High shelf @ 5 кГц, диапазон +/-6 дБ (шкала 0..30, центр=15).
-- `bluetooth_sink.*`, `bt_app_av.*`, `bt_app_core.*`, `bt_avrc.*`
-  - Инициализация BT, A2DP, AVRCP, ring?buffer и I2S?задача.
+  - 2-РїРѕР»РѕСЃРЅС‹Р№ shelving-EQ РІ `audio_i2s_write`.
+  - Low shelf @ 150 Р“С†, High shelf @ 5 РєР“С†, РґРёР°РїР°Р·РѕРЅ +/-6 РґР‘ (С€РєР°Р»Р° 0..30, С†РµРЅС‚СЂ=15).
+- `alarm_playback.*`
+  - Р›РѕРіРёРєР° РІРѕСЃРїСЂРѕРёР·РІРµРґРµРЅРёСЏ Р±СѓРґРёР»СЊРЅРёРєР° Рё РїРѕРІС‚РѕСЂС‹.
+  - РСЃС‚РѕС‡РЅРёРє Р·Р°РІРёСЃРёС‚ РѕС‚ СЂРµР¶РёРјР°:
+    - Р§Р°СЃС‹/РїР»РµРµСЂ: MP3 СЃ SD С‡РµСЂРµР· `alarm_sound`, РµСЃР»Рё РµСЃС‚СЊ С„Р°Р№Р»С‹.
+    - Bluetooth: РІСЃС‚СЂРѕРµРЅРЅС‹Р№ С‚РѕРЅ С‡РµСЂРµР· `alarm_tone` (Р±РµР· SD/MP3).
+- `alarm_sound.*`
+  - Р’РѕСЃРїСЂРѕРёР·РІРµРґРµРЅРёРµ MP3 РґР»СЏ Р±СѓРґРёР»СЊРЅРёРєР° (`/sdcard/alarm`).
+  - Р›РµРЅРёРІР°СЏ РёРЅРёС†РёР°Р»РёР·Р°С†РёСЏ (Р·Р°РґР°С‡Р° СЃРѕР·РґР°С‘С‚СЃСЏ РїСЂРё РїРµСЂРІРѕРј РёСЃРїРѕР»СЊР·РѕРІР°РЅРёРё).
+- `alarm_tone.*`
+  - Р›С‘РіРєР°СЏ Р·Р°РґР°С‡Р° РґР»СЏ РІСЃС‚СЂРѕРµРЅРЅРѕРіРѕ С‚РѕРЅР° (BT-СЂРµР¶РёРј).
+- `bluetooth_sink.*`
+  - РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ BT, GAP, A2DP sink, discoverability.
+- `bt_app_av.*`
+  - A2DP РєРѕР»Р»Р±РµРєРё, РєРѕРЅС„РёРі СЃС‚СЂРёРјР°, Р·Р°РїРёСЃСЊ РІ ringbuffer.
+- `bt_app_core.*`
+  - Ringbuffer + I2S Р·Р°РґР°С‡Р° РґР»СЏ BT Р°СѓРґРёРѕ.
+  - Prefetch РґРµС‚РµСЂРјРёРЅРёСЂРѕРІР°РЅРЅС‹Р№: СЃС‚Р°СЂС‚ С‚РѕР»СЊРєРѕ РїРѕ РІРѕРґСЏРЅРѕРјСѓ СѓСЂРѕРІРЅСЋ Р±Р°Р№С‚.
+  - `BtI2STask` С„РёРєСЃРёСЂРѕРІР°РЅРЅРѕ РёРјРµРµС‚ РїСЂРёРѕСЂРёС‚РµС‚ `9`.
+- `bt_avrc.*`
+  - AVRCP СѓРїСЂР°РІР»РµРЅРёРµ Рё Р°Р±СЃРѕР»СЋС‚РЅР°СЏ РіСЂРѕРјРєРѕСЃС‚СЊ.
 - `audio_spectrum.*`
-  - Лёгкий 4?полосный визуализатор (не влияет на аудио).
+  - Р›С‘РіРєРёР№ 4-РїРѕР»РѕСЃРЅС‹Р№ РІРёР·СѓР°Р»РёР·Р°С‚РѕСЂ (РґР»СЏ РґРёСЃРїР»РµСЏ).
 
-## Память и плеер
+## РџР°РјСЏС‚СЊ Рё РїР»РµРµСЂ
 - `storage/storage_sd_spi.*`
-  - SD по SPI; mount/unmount.
+  - SD РїРѕ SPI; mount/unmount.
 - `audio_player.*`
-  - Локальное воспроизведение с SD.
+  - Р›РѕРєР°Р»СЊРЅРѕРµ РІРѕСЃРїСЂРѕРёР·РІРµРґРµРЅРёРµ СЃ SD (MP3/WAV).
+  - Р”РµРєРѕРґРµСЂ Р·Р°РєСЂРµРїР»С‘РЅ Р·Р° core 1.
+  - РҐСЂР°РЅРёС‚СЃСЏ С‚РѕР»СЊРєРѕ РєРѕР»РёС‡РµСЃС‚РІРѕ С‚СЂРµРєРѕРІ Рё РїРѕСЂСЏРґРѕРє (Р±РµР· СЃРїРёСЃРєР° РёРјС‘РЅ).
 
-## Сеть и web UI
+## РЎРµС‚СЊ Рё web UI
 - `wifi_ntp.*`
-  - Жизненный цикл Wi?Fi + синхронизация времени (NTP).
+  - Р–РёР·РЅРµРЅРЅС‹Р№ С†РёРєР» Wi-Fi + СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёСЏ РІСЂРµРјРµРЅРё (NTP).
+  - Р”РІР° СЂРµР¶РёРјР°:
+    - Provisioning: AP + web (Р·Р°РїСѓСЃРє РІСЂСѓС‡РЅСѓСЋ РёР· РјРµРЅСЋ).
+    - Normal: STA РґР»СЏ СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёРё Рё СЂР°Р±РѕС‚С‹.
+  - AP РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ: `ClockSetup` / `12345678`.
 - `web_config.*`
-  - Минимальный web?интерфейс настройки Wi?Fi (SSID/пароль/сброс).
+  - РњРёРЅРёРјР°Р»СЊРЅС‹Р№ web-РёРЅС‚РµСЂС„РµР№СЃ РЅР°СЃС‚СЂРѕР№РєРё Wi-Fi (SSID/РїР°СЂРѕР»СЊ/СЃР±СЂРѕСЃ).
 
-## Ввод и UI
+## Р’РІРѕРґ Рё UI
 - `ui_input.*`
-  - Инициализация энкодера/ADC?клавиш.
+  - РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ СЌРЅРєРѕРґРµСЂР°/ADC-РєР»Р°РІРёС€.
 - `ui_input_handlers.*`
-  - Переключение режимов, громкость, управление воспроизведением, меню/установка времени.
+  - РџРµСЂРµРєР»СЋС‡РµРЅРёРµ СЂРµР¶РёРјРѕРІ, РіСЂРѕРјРєРѕСЃС‚СЊ, СѓРїСЂР°РІР»РµРЅРёРµ РІРѕСЃРїСЂРѕРёР·РІРµРґРµРЅРёРµРј, РјРµРЅСЋ/СѓСЃС‚Р°РЅРѕРІРєР° РІСЂРµРјРµРЅРё.
 - `ui_menu.*`
-  - Меню и взаимодействия, включая EQ (`EqUA`).
+  - РњРµРЅСЋ Рё РІР·Р°РёРјРѕРґРµР№СЃС‚РІРёСЏ.
+  - Р’С‹Р±РѕСЂ С‚СЂРµРєР° Р±СѓРґРёР»СЊРЅРёРєР° РІ BT Р·Р°РїСЂРµС‰С‘РЅ Рё РїРѕРєР°Р·С‹РІР°РµС‚ `frbd`.
 - `ui_time_setting.*`
-  - Режим установки времени.
+  - Р РµР¶РёРј СѓСЃС‚Р°РЅРѕРІРєРё РІСЂРµРјРµРЅРё.
 - `alarm_timer.*`
-  - Планировщик будильника.
+  - РџР»Р°РЅРёСЂРѕРІС‰РёРє Р±СѓРґРёР»СЊРЅРёРєР°.
 - `power_manager.*`
-  - Питание и soft?power логика.
+  - РџРёС‚Р°РЅРёРµ Рё soft-power Р»РѕРіРёРєР°.
 
-## API
-### Внутренние (C) API
-- `app_control.h`: `app_get_ui_mode`, `app_request_ui_mode`, `app_set_ui_mode`.
-- `display_74hc595.h`: `display_init`, `display_set_time`, `display_set_text`,
-  `display_set_segments`, `display_set_brightness`, `display_get_brightness`.
-- `display_ui.h`: `display_ui_init`, `display_ui_set_time`, `display_ui_show_text`,
-  `display_ui_show_digits`, `display_ui_show_segments`, `display_ui_render`.
-- `display_bt_anim.h`: `display_bt_anim_reset`, `display_bt_anim_update`.
-- `audio_pcm5102.h`: `audio_init`, `audio_set_volume`, `audio_i2s_write`,
-  `audio_i2s_set_sample_rate`, `audio_play_tone`, `audio_play_alarm`, `audio_stop`.
-- `audio_eq.h`: `audio_eq_init`, `audio_eq_set_sample_rate`, `audio_eq_set_steps`,
-  `audio_eq_is_flat`, `audio_eq_process`.
-- `audio_player.h`: `audio_player_init`, `audio_player_play`, `audio_player_pause`,
-  `audio_player_stop`, `audio_player_next`, `audio_player_prev`,
-  `audio_player_set_volume`, `audio_player_get_state`, `audio_player_get_time_ms`.
-- `bluetooth_sink.h`: `bt_sink_init`, `bt_sink_set_discoverable`, `bt_sink_disconnect`,
-  `bt_sink_is_connected`, `bt_sink_is_streaming`, `bt_sink_set_name`,
-  `bt_sink_clear_bonds`.
-- `bt_avrc.h`: `bt_avrc_send_command`, `bt_avrc_register_volume_cb`,
-  `bt_avrc_notify_volume`, `bt_avrc_is_connected`.
-- `config_store.h`: `config_store_init`, `config_store_get`, `config_store_update`.
-- `config_owner.h`: `config_owner_init`, `config_owner_start`, `config_owner_request_update`.
-- `clock_time.h`: `clock_time_init`, `clock_time_get`, `clock_time_set_timezone`.
-- `wifi_ntp.h`: `wifi_init`, `wifi_set_enabled`, `wifi_is_enabled`,
-  `wifi_update_credentials`.
-- `storage_sd_spi.h`: `storage_sd_init`, `storage_sd_unmount`, `storage_sd_is_mounted`.
-- `alarm_timer.h`: `alarm_timer_init`, `alarm_set`.
-- `power_manager.h`: `power_manager_init`, `power_manager_set_autonomous`,
-  `power_manager_handle_boot`.
+## Р—Р°РґР°С‡Рё Рё С‚Р°Р№РјРµСЂС‹
+- Р—Р°РґР°С‡Рё:
+  - `ui_cmd_task`, `ui_input`, `cfg_owner`, `display_task`
+  - `alarm_timer`, `alarm_playback`, `alarm_sound`, `alarm_tone`
+  - `audio_task`, `audio_player`
+  - `BtAppTask`, `BtI2STask`, `audio_spectrum`
+  - `encoder_task`, `adc_keys`, `led_indicator`
+  - `wifi_shutdown`, `web_cfg_stop`
+- РўР°Р№РјРµСЂС‹:
+  - РЁРРњ СЏСЂРєРѕСЃС‚Рё РґРёСЃРїР»РµСЏ (РµСЃР»Рё РЅРµС‚ OE PWM).
+  - РўР°Р№РјРµСЂС‹ РїРѕРІС‚РѕСЂР°/СЃС‚РѕРїР° Р±СѓРґРёР»СЊРЅРёРєР°.
 
-### Web HTTP API
-- `GET /` — редирект на `/wifi`.
-- `GET /wifi` — страница Wi?Fi и статус.
-- `POST /wifi` — сохранить Wi?Fi (`ssid`, `pass`).
-- `POST /wifi_reset` — очистка учётных данных Wi?Fi.
-- Для fetch?запросов ответ JSON `{ "ok": true }`.
+## РџРѕС‚РѕРєРё РґР°РЅРЅС‹С…
+- Р’РІРѕРґ (СЌРЅРєРѕРґРµСЂ/ADC) -> `ui_input_handlers` -> `app_request_ui_mode` / РіСЂРѕРјРєРѕСЃС‚СЊ / РјРµРЅСЋ / СѓСЃС‚Р°РЅРѕРІРєР° РІСЂРµРјРµРЅРё.
+- BT A2DP -> `bt_app_av` -> ringbuffer -> `bt_app_core` -> `audio_i2s_write` (EQ) -> I2S.
+- Р—Р°РґР°С‡Р° РґРёСЃРїР»РµСЏ -> `display_ui` -> `display_74hc595`.
+- BT Р°СѓРґРёРѕ -> `audio_spectrum` -> `display_bt_anim`.
 
-## Задачи и таймеры
-- Задачи:
-  - `ui_cmd_task` (переключение режимов)
-  - `cfg_owner` (сериализованные записи конфига)
-  - `display_task` (рендер UI)
-  - `BtAppTask` (диспетчер BT событий)
-  - `BtI2STask` (BT ringbuffer -> I2S)
-  - `audio_task` (тон/будильник)
-  - `web_cfg_stop` (отложенная остановка HTTP)
-
-## Потоки данных
-- Ввод (энкодер/ADC) -> `ui_input_handlers` -> `app_request_ui_mode` / громкость / меню / установка времени.
-- BT A2DP -> `bt_app_av` -> ring?buffer -> `bt_app_core` -> `audio_i2s_write` (EQ) -> I2S.
-- Задача дисплея -> `display_ui` -> `display_74hc595`.
-- BT аудио -> `audio_spectrum` -> `display_bt_anim`.
-
-## Вход сборки
-- `main/CMakeLists.txt` регистрирует все модули.
-
-## ????????? ?????????
-- BT prefetch start is deterministic: playback starts only by byte watermark (`s_prefetch_start_bytes`).
-- `BtI2STask` priority is fixed to `9`.
-- Runtime logging is reduced: mode switch + heap stay at INFO, transition details are DEBUG.
+## Р’С…РѕРґ СЃР±РѕСЂРєРё
+- `main/CMakeLists.txt` СЂРµРіРёСЃС‚СЂРёСЂСѓРµС‚ РІСЃРµ РјРѕРґСѓР»Рё.

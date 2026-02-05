@@ -1,45 +1,91 @@
-# Quick Instruction
+﻿# Инструкция (для чайников)
 
-This file is a short user guide for daily device usage.
+Короткая пошаговая инструкция для первого запуска и ежедневного использования.
 
-## 1) Basic Control
+## 1) Что нужно
 
-- Rotate encoder: navigate items / adjust values.
-- Short encoder press: confirm/select.
-- Long encoder press: open menu or go one level back.
-- ADC keys (if wired): mode and quick actions based on current UI state.
+- ESP32 (WROOM класс).
+- 4-разрядный 7-сегментный индикатор + 74HC595.
+- SD карта (FAT32).
+- I2S DAC PCM5102 (или совместимый).
+- Энкодер с кнопкой.
+- Питание 5V (логика 3.3V).
 
-## 2) Modes
+Подробная распиновка: `WIRING.md`.
 
-- `CLCK` - clock display mode.
-- `PLYR` - SD card player mode.
-- `BLUE` - Bluetooth audio sink mode.
+## 2) Первое включение
 
-Mode switching is handled by the UI command task; transitions are asynchronous.
+- Если время не задано, дисплей показывает `--:--`.
+- В режиме часов (`CLCK`) будет отображаться время, когда оно задано вручную или синхронизировано по Wi-Fi.
 
-## 3) Audio
+## 3) Управление
 
-- Player reads tracks from `/sdcard/music`.
-- Bluetooth mode uses A2DP sink input.
-- EQ settings are shared and applied in `audio_i2s_write`.
-- Alarm playback uses a dedicated path and takes audio ownership when active.
+- Поворот энкодера: навигация и изменение значений.
+- Короткое нажатие: подтверждение/вход.
+- Длинное нажатие: вход в меню или шаг назад.
 
-## 4) Wi-Fi / Web Setup
+## 4) Режимы
 
-- Web interface is started manually from menu (`InOn`).
-- Provisioning starts in AP mode (setup page).
-- After saving credentials, system attempts STA connect.
-- On successful STA connect, setup AP is stopped and interface flag is cleared.
+- `CLCK` - часы.
+- `PLYR` - плеер с SD.
+- `BLUE` - Bluetooth приёмник.
 
-## 5) Build / Flash
+## 5) Установка времени
+
+1. Длинное нажатие -> меню.
+2. `SEt ` -> `CLOC`.
+3. Поверните для изменения часов/минут.
+4. Короткое нажатие переключает часы/минуты и сохраняет.
+
+## 6) Будильник
+
+1. Длинное нажатие -> меню.
+2. `SEt ` -> `ALr `.
+3. Доступные пункты:
+   - `ALOn`/`ALOF` (вкл/выкл будильник)
+   - `ALt ` (время)
+   - `ALvL` (громкость)
+   - `ton ` (тон/трек)
+   - `rEP ` (повторы)
+   - `AtYP` (тип расписания)
+
+В Bluetooth режиме выбор `ton ` блокируется и показывает `frbd`.
+
+## 7) Плеер (SD)
+
+- Музыка: `/sdcard/music` (MP3/WAV).
+- Запустите `PLYR`, управляйте энкодером.
+
+## 8) Будильник с SD
+
+- Файлы будильника: `/sdcard/alarm` (MP3).
+- При наличии файлов будильник играет их в режимах `CLCK/PLYR`.
+- В `BLUE` всегда используется встроенный тон.
+
+## 9) Bluetooth
+
+1. Перейдите в `BLUE`.
+2. На телефоне найдите устройство и подключитесь.
+3. Громкость синхронизируется через AVRCP.
+
+## 10) Wi-Fi (ручная настройка)
+
+1. Меню -> `SEt ` -> `InOn`.
+2. Подключитесь к AP: `ClockSetup` / пароль `12345678`.
+3. Откройте `http://192.168.4.1/wifi` и сохраните SSID/пароль.
+4. Устройство перейдёт в STA, синхронизирует время и выключит интерфейс.
+
+## 11) Сборка и прошивка
 
 ```bash
 idf.py build
 idf.py -p COMx flash monitor
 ```
 
-## 6) Troubleshooting
+## 12) Если что-то не работает
 
-- If SD playback fails, check card mount logs and `/sdcard/music` content.
-- If Bluetooth cannot start after many mode changes, check `PROBLEMS.md`.
-- For memory tracking, use heap logs around mode transitions.
+- Нет времени: проверьте Wi-Fi или задайте вручную.
+- SD не видна: FAT32, корректная проводка, карта не в `LOCK`.
+- BT не подключается: проверьте режим `BLUE` и удалите старую пару на телефоне.
+
+Подробности по меню см. `MENU.md`.

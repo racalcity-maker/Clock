@@ -1,57 +1,62 @@
-# Clock (ESP32, ESP-IDF)
+﻿# Clock (ESP32 audio clock)
 
-Firmware for an ESP32-based clock/audio device with a 4-digit 7-segment display, SD MP3 player, Bluetooth sink, and alarm features.
+Прошивка для ESP32-устройства «часы/аудио»: 4-разрядный 7-сегментный дисплей, SD-плеер, Bluetooth A2DP приёмник и будильник.
 
-## Main Features
+## Что это
 
-- Clock mode with timezone-aware time handling.
-- Alarm scheduler with configurable tone/volume/repeat settings.
-- SD card MP3 player (Helix decoder, PCM5102 I2S output).
-- Bluetooth A2DP sink mode with AVRCP support.
-- 2-band real-time EQ (applied in audio output path).
-- Web Wi-Fi provisioning flow and NTP sync support.
+Устройство умеет показывать время, играть музыку с SD и по Bluetooth, а также запускать будильник по расписанию. Управление — энкодером и (опционально) ADC-кнопками.
 
-## Hardware Stack
+## Возможности
 
-- MCU: ESP32 (WROOM class target).
-- Display: 4x7-segment via 74HC595.
-- Audio DAC: PCM5102 over I2S.
-- Storage: SD card over SPI.
-- Input: rotary encoder + ADC keys.
+- Часы с таймзоной и синхронизацией по NTP.
+- Будильник с громкостью, повтором и выбором тона/трека.
+- Плеер с SD (MP3/WAV), Helix MP3 декодер, PCM5102 I2S.
+- Bluetooth A2DP sink с AVRCP и синхронизацией громкости.
+- 2-полосный эквалайзер в аудио-тракте.
+- Веб-настройка Wi-Fi (AP режим запускается вручную из меню).
 
-## Build and Flash
+## Режимы
 
-Prerequisites:
+- `CLCK` — часы.
+- `PLYR` — плеер с SD.
+- `BLUE` — Bluetooth приёмник.
 
-- ESP-IDF 5.3.x installed and exported.
+Если время ещё не задано, дисплей показывает `--:--` (тире с двоеточием).
 
-Commands:
+## SD карта
+
+- Музыка: `/sdcard/music` (MP3/WAV).
+- Будильник: `/sdcard/alarm` (MP3).
+
+## Wi-Fi (ручная настройка)
+
+1. Меню -> `SEt ` -> `InOn`.
+2. Подключитесь к AP `ClockSetup`, пароль `12345678`.
+3. Откройте `http://192.168.4.1/wifi` и сохраните SSID/пароль.
+4. Устройство переключится в STA, синхронизирует время и выключит интерфейс.
+
+## Быстрый старт (сборка/прошивка)
 
 ```bash
 idf.py build
 idf.py -p COMx flash monitor
 ```
 
-## Project Layout
+## Документация
 
-- `main/app` - app orchestration, UI mode manager, menu/input handlers.
-- `main/audio` - player, decoder wrapper, EQ, tones, audio ownership.
-- `main/connectivity` - Bluetooth, Wi-Fi/NTP, web config.
-- `main/display` - display driver and UI rendering.
-- `main/storage` - SD card mount/unmount.
-- `main/config` - persistent config store and owner task.
-- `build` - generated artifacts (do not edit manually).
+- `ARCHITECTURE.md` — архитектура (EN).
+- `ARCHITECTURE.ru.md` — архитектура (RU).
+- `INSTRUCTION.md` — инструкция для новичков (RU).
+- `MENU.md` — подробное меню (RU).
+- `WIRING.md` — распиновка и подключение (RU).
+- `PROBLEMS.md` — известные проблемы.
 
-## Documentation
+## Структура проекта
 
-- `ARCHITECTURE.md` - architecture overview and module map.
-- `ARCHITECTURE.ru.md` - architecture notes in Russian.
-- `MENU.md` - menu behavior reference.
-- `PROBLEMS.md` - known issues and tracking notes.
-- `INSTRUCTION.md` - quick usage guide.
-
-## CI
-
-GitHub Actions workflow builds firmware on pushes and pull requests:
-
-- `.github/workflows/esp-idf-build.yml`
+- `main/app` — режимы UI, меню, обработчики ввода.
+- `main/audio` — плеер, декодер, EQ, тоны, владение аудио.
+- `main/connectivity` — Bluetooth, Wi-Fi/NTP, web config.
+- `main/display` — драйвер дисплея и UI.
+- `main/storage` — SD карта.
+- `main/config` — конфиг и owner-задача.
+- `build` — артефакты сборки (не редактировать).
