@@ -14,6 +14,7 @@
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 #include "audio_owner.h"
 #include "audio_pcm5102.h"
@@ -42,7 +43,7 @@ static void bt_app_task_handler(void *arg);
 /* handler for I2S task */
 static void bt_i2s_task_handler(void *arg);
 /* message sender */
-static bool bt_app_send_msg(bt_app_msg_t *msg);
+static bool bt_app_send_msg(bt_app_msg_t *msg, int param_len);
 /* handle dispatched messages */
 static void bt_app_work_dispatched(bt_app_msg_t *msg);
 /* ringbuffer init */
@@ -76,10 +77,32 @@ static uint32_t s_bt_error_count = 0;
 static bool s_bt_mute_active = false;
 static volatile bool s_bt_i2s_stop_requested = false;
 static uint8_t s_silence_chunk[BT_I2S_CHUNK_BYTES] = {0};
+static int64_t s_dispatch_log_last_us = 0;
+static uint32_t s_dispatch_drop_count = 0;
 
 /*******************************
  * STATIC FUNCTION DEFINITIONS
  ******************************/
+
+#define BT_DISPATCH_LOG_INTERVAL_US (2000000)
+
+static bool bt_dispatch_log_acquire(uint32_t *suppressed)
+{
+    if (suppressed) {
+        *suppressed = 0;
+    }
+    s_dispatch_drop_count++;
+    int64_t now = esp_timer_get_time();
+    if (now - s_dispatch_log_last_us < BT_DISPATCH_LOG_INTERVAL_US) {
+        return false;
+    }
+    if (suppressed) {
+        *suppressed = (s_dispatch_drop_count > 0) ? (s_dispatch_drop_count - 1) : 0;
+    }
+    s_dispatch_drop_count = 0;
+    s_dispatch_log_last_us = now;
+    return true;
+}
 
 static size_t bt_ringbuf_select_size(size_t max_bytes)
 {
@@ -289,7 +312,7 @@ static void bt_app_core_set_mute(bool enable)
     s_bt_mute_active = enable;
 }
 
-static bool bt_app_send_msg(bt_app_msg_t *msg)
+static bool bt_app_send_msg(bt_app_msg_t *msg, int param_len)
 {
     if (msg == NULL) {
         return false;
@@ -303,9 +326,18 @@ static bool bt_app_send_msg(bt_app_msg_t *msg)
         UBaseType_t waiting = s_bt_app_task_queue ? uxQueueMessagesWaiting(s_bt_app_task_queue) : 0;
         UBaseType_t spaces = s_bt_app_task_queue ? uxQueueSpacesAvailable(s_bt_app_task_queue) : 0;
         eTaskState state = s_bt_app_task_handle ? eTaskGetState(s_bt_app_task_handle) : eInvalid;
-        ESP_LOGE(BT_APP_CORE_TAG,
-                 "%s xQueue send failed (waiting=%u spaces=%u task=%p state=%d)",
-                 __func__, (unsigned)waiting, (unsigned)spaces, (void *)s_bt_app_task_handle, (int)state);
+        uint32_t suppressed = 0;
+        if (bt_dispatch_log_acquire(&suppressed)) {
+            ESP_LOGW(BT_APP_CORE_TAG,
+                     "dispatch failed (queue) evt=0x%x len=%d waiting=%u spaces=%u task=%p state=%d suppressed=%u",
+                     (unsigned)msg->event,
+                     param_len,
+                     (unsigned)waiting,
+                     (unsigned)spaces,
+                     (void *)s_bt_app_task_handle,
+                     (int)state,
+                     (unsigned)suppressed);
+        }
         return false;
     }
     return true;
@@ -483,11 +515,7 @@ bool bt_app_work_dispatch(bt_app_cb_t p_cback, uint16_t event, void *p_params, i
     msg.cb = p_cback;
 
     if (param_len == 0) {
-        if (!bt_app_send_msg(&msg)) {
-            ESP_LOGW(BT_APP_CORE_TAG, "dispatch failed (no param) evt=0x%x", event);
-            return false;
-        }
-        return true;
+        return bt_app_send_msg(&msg, param_len);
     } else if (p_params && param_len > 0) {
         if ((msg.param = malloc(param_len)) != NULL) {
             memcpy(msg.param, p_params, param_len);
@@ -495,14 +523,19 @@ bool bt_app_work_dispatch(bt_app_cb_t p_cback, uint16_t event, void *p_params, i
             if (p_copy_cback) {
                 p_copy_cback(msg.param, p_params, param_len);
             }
-            if (!bt_app_send_msg(&msg)) {
-                ESP_LOGW(BT_APP_CORE_TAG, "dispatch failed (queue) evt=0x%x len=%d", event, param_len);
+            if (!bt_app_send_msg(&msg, param_len)) {
                 free(msg.param);
                 return false;
             }
             return true;
         }
-        ESP_LOGW(BT_APP_CORE_TAG, "dispatch failed (malloc) evt=0x%x len=%d", event, param_len);
+        {
+            uint32_t suppressed = 0;
+            if (bt_dispatch_log_acquire(&suppressed)) {
+                ESP_LOGW(BT_APP_CORE_TAG, "dispatch failed (malloc) evt=0x%x len=%d suppressed=%u",
+                         event, param_len, (unsigned)suppressed);
+            }
+        }
     }
 
     return false;
@@ -511,7 +544,7 @@ bool bt_app_work_dispatch(bt_app_cb_t p_cback, uint16_t event, void *p_params, i
 void bt_app_task_start_up(void)
 {
     if (!s_bt_app_task_queue) {
-        s_bt_app_task_queue = xQueueCreate(20, sizeof(bt_app_msg_t));
+        s_bt_app_task_queue = xQueueCreate(40, sizeof(bt_app_msg_t));
         if (!s_bt_app_task_queue) {
             ESP_LOGE(BT_APP_CORE_TAG, "bt app queue create failed");
         }
