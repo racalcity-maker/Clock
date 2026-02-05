@@ -5,12 +5,12 @@
 static uint8_t system_tone_volume(uint8_t volume)
 {
     // Keep system tones softer than music/alarm to avoid sharp square-wave clicks.
-    uint16_t scaled = ((uint16_t)volume * 35U + 50U) / 100U;
+    uint16_t scaled = ((uint16_t)volume * 40U + 50U) / 100U;
     if (scaled < 28U) {
         scaled = 28U;
     }
-    if (scaled > 96U) {
-        scaled = 96U;
+    if (scaled > 112U) {
+        scaled = 112U;
     }
     return (uint8_t)scaled;
 }
