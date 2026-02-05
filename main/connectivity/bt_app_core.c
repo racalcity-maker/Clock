@@ -1,4 +1,4 @@
-/*
+﻿/*
  * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
@@ -274,7 +274,7 @@ void bt_app_core_release_ringbuffer(void)
     s_ringbuf_enabled = false;
     if (s_ringbuf_mutex && xSemaphoreTake(s_ringbuf_mutex, portMAX_DELAY) == pdTRUE) {
         if (s_ringbuf_storage) {
-            free(s_ringbuf_storage);
+            heap_caps_free(s_ringbuf_storage);
             s_ringbuf_storage = NULL;
         }
         s_ringbuf_size = 0;
@@ -283,7 +283,7 @@ void bt_app_core_release_ringbuffer(void)
         return;
     }
     if (s_ringbuf_storage) {
-        free(s_ringbuf_storage);
+        heap_caps_free(s_ringbuf_storage);
         s_ringbuf_storage = NULL;
     }
     s_ringbuf_size = 0;
@@ -322,7 +322,7 @@ static bool bt_app_send_msg(bt_app_msg_t *msg, int param_len)
     }
 
     /* send the message to work queue */
-    if (xQueueSend(s_bt_app_task_queue, msg, 10 / portTICK_PERIOD_MS) != pdTRUE) {
+    if (xQueueSend(s_bt_app_task_queue, msg, 0) != pdTRUE) {
         UBaseType_t waiting = s_bt_app_task_queue ? uxQueueMessagesWaiting(s_bt_app_task_queue) : 0;
         UBaseType_t spaces = s_bt_app_task_queue ? uxQueueSpacesAvailable(s_bt_app_task_queue) : 0;
         eTaskState state = s_bt_app_task_handle ? eTaskGetState(s_bt_app_task_handle) : eInvalid;
