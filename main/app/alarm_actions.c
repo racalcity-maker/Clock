@@ -61,7 +61,6 @@ void alarm_actions_on_trigger(void)
             bt_avrc_send_command(BT_AVRC_CMD_PAUSE);
         }
         bt_i2s_task_shut_down();
-        bt_app_core_release_ringbuffer();
         for (int i = 0; i < 50 && bt_i2s_task_is_running(); ++i) {
             vTaskDelay(pdMS_TO_TICKS(10));
         }

@@ -18,6 +18,7 @@ idf_component_register(
         "display/display_bt_anim.c"
         "display/display_ui.c"
         "audio/alarm_sound.c"
+        "audio/alarm_tone.c"
         "audio/audio_eq.c"
         "audio/audio_owner.c"
         "audio/audio_pcm5102.c"

@@ -24,6 +24,7 @@ static const int64_t BRIGHTNESS_SAVE_IDLE_US = 2000000; // 2s
 static const int64_t EQ_SAVE_IDLE_US = 2000000; // 2s
 static const int64_t ALARM_TONE_PREVIEW_DELAY_US = 250000; // 250ms
 static const uint32_t ALARM_TONE_PREVIEW_MS = 0;
+static const int64_t MENU_FORBIDDEN_US = 1200000; // 1.2s
 
 typedef enum {
     MENU_ROOT_CLOCK,
@@ -90,6 +91,7 @@ static bool s_alarm_time_editing = false;
 static uint8_t s_alarm_time_hour = 0;
 static uint8_t s_alarm_time_min = 0;
 static uint8_t s_alarm_time_select = 0; // 0=hours, 1=minutes
+static int64_t s_forbidden_until_us = 0;
 
 static int64_t menu_now_us(void)
 {
@@ -190,6 +192,11 @@ static void menu_alarm_tone_preview_exit(void)
 static void menu_touch(void)
 {
     s_menu_last_activity_us = menu_now_us();
+}
+
+static void menu_show_forbidden(void)
+{
+    s_forbidden_until_us = menu_now_us() + MENU_FORBIDDEN_US;
 }
 
 static void menu_brightness_touch(void)
@@ -585,6 +592,14 @@ void ui_menu_render(void)
     if (!s_menu_active) {
         return;
     }
+    if (s_forbidden_until_us != 0) {
+        int64_t now = menu_now_us();
+        if (now < s_forbidden_until_us) {
+            display_set_text("frbd", false);
+            return;
+        }
+        s_forbidden_until_us = 0;
+    }
     menu_brightness_commit(false);
     menu_eq_commit(false);
     if (s_alarm_refresh_pending) {
@@ -784,8 +799,12 @@ ui_menu_action_t ui_menu_handle_encoder(encoder_event_t event, app_ui_mode_t *ou
                     s_menu_state = MENU_STATE_ALARM_VOLUME;
                     break;
                 case MENU_ALARM_TONE:
-                    s_menu_state = MENU_STATE_ALARM_TONE;
-                    menu_alarm_tone_preview_enter();
+                    if (app_get_ui_mode() == APP_UI_MODE_BLUETOOTH) {
+                        menu_show_forbidden();
+                    } else {
+                        s_menu_state = MENU_STATE_ALARM_TONE;
+                        menu_alarm_tone_preview_enter();
+                    }
                     break;
                 case MENU_ALARM_REPEAT:
                     s_menu_state = MENU_STATE_ALARM_REPEAT;

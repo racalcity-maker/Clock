@@ -1,6 +1,7 @@
 #include "alarm_playback.h"
 
 #include "alarm_sound.h"
+#include "alarm_tone.h"
 #include "audio_pcm5102.h"
 #include "app_control.h"
 #include "esp_timer.h"
@@ -143,6 +144,7 @@ static void alarm_play_cycle(void)
     s_repeat_done++;
 
     alarm_sound_stop();
+    alarm_tone_stop();
 
     bool force_tone = (app_get_ui_mode() == APP_UI_MODE_BLUETOOTH);
     uint8_t count = force_tone ? 0 : alarm_sound_get_file_count();
@@ -163,7 +165,11 @@ static void alarm_play_cycle(void)
         }
         audio_i2s_write_silence(50);
         audio_i2s_reset();
-        alarm_sound_play_builtin(tone, s_alarm_volume, 0);
+        if (force_tone) {
+            alarm_tone_play(tone, s_alarm_volume, 0);
+        } else {
+            alarm_sound_play_builtin(tone, s_alarm_volume, 0);
+        }
     }
 
     alarm_start_stop_timer();
@@ -179,11 +185,13 @@ static void alarm_playback_task(void *arg)
             alarm_play_cycle();
         } else if (cmd == ALARM_CMD_STOP_AUDIO) {
             alarm_sound_stop();
+            alarm_tone_stop();
             audio_stop();
             audio_i2s_write_silence(50);
             audio_i2s_reset();
         } else if (cmd == ALARM_CMD_STOP) {
             alarm_sound_stop();
+            alarm_tone_stop();
             audio_stop();
             audio_i2s_write_silence(50);
             audio_i2s_reset();
@@ -235,6 +243,7 @@ void alarm_playback_stop(void)
     alarm_stop_repeat_timer();
     alarm_stop_stop_timer();
     alarm_sound_stop();
+    alarm_tone_stop();
     audio_i2s_write_silence(100);
     audio_i2s_reset();
     if (s_alarm_queue) {
