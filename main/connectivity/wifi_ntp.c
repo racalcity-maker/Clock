@@ -116,6 +116,7 @@ static void sntp_sync_cb(struct timeval *tv)
     }
     s_last_sync_time = tv->tv_sec;
     s_last_sync_valid = true;
+    clock_time_mark_valid();
     wifi_schedule_disable_after_sync();
 }
 

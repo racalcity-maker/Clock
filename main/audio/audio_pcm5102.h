@@ -25,8 +25,18 @@ typedef struct {
     uint16_t duration_ms;
     uint16_t damping_q15;
 } audio_pluck_step_t;
+typedef struct {
+    uint16_t freq_hz[3];
+    int8_t detune_cents[3];
+    uint16_t duration_ms;
+    uint16_t attack_ms;
+    uint16_t decay_ms;
+    uint16_t sustain_q15;
+    uint16_t release_ms;
+} audio_chord_step_t;
 void audio_play_tone_sequence(const audio_tone_step_t *seq, size_t count, uint8_t volume);
 void audio_play_pluck_sequence(const audio_pluck_step_t *seq, size_t count, uint8_t volume);
+void audio_play_chord_sequence(const audio_chord_step_t *seq, size_t count, uint8_t volume);
 void audio_play_tone_sequence_blocking(const audio_tone_step_t *seq, size_t count, uint8_t volume);
 void audio_play_alarm(void);
 void audio_play_alarm_tone(uint8_t tone);

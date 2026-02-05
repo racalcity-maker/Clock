@@ -28,22 +28,28 @@ void audio_tones_play_alarm(uint8_t volume)
 
 void audio_tones_play_system(uint8_t tone, uint8_t volume)
 {
-    static const audio_pluck_step_t bt_connect[] = {
-        {440, 85, 32580}, {0, 20, 32580},
-        {660, 120, 32560}
+    static const uint16_t chord_step_ms = 300;
+    static const uint16_t chord_attack_ms = 8;
+    static const uint16_t chord_decay_ms = 90;
+    static const uint16_t chord_release_ms = 62;
+    static const uint16_t chord_sustain_q15 = 18000;
+
+    static const audio_chord_step_t bt_connect[] = {
+        { {262, 330, 392}, { -4, 0, 4 }, chord_step_ms, chord_attack_ms, chord_decay_ms, chord_sustain_q15, chord_release_ms },
+        { {196, 247, 294}, { -4, 0, 4 }, chord_step_ms, chord_attack_ms, chord_decay_ms, chord_sustain_q15, chord_release_ms }
     };
-    static const audio_pluck_step_t bt_disconnect[] = {
-        {660, 90, 32540}, {0, 20, 32540},
-        {392, 130, 32520}
+    static const audio_chord_step_t bt_disconnect[] = {
+        { {220, 262, 330}, { -4, 0, 4 }, chord_step_ms, chord_attack_ms, chord_decay_ms, chord_sustain_q15, chord_release_ms },
+        { {165, 196, 247}, { -4, 0, 4 }, chord_step_ms, chord_attack_ms, chord_decay_ms, chord_sustain_q15, chord_release_ms }
     };
     uint8_t sys_volume = system_tone_volume(volume);
 
     switch (tone) {
         case AUDIO_SYS_TONE_BT_CONNECT:
-            audio_play_pluck_sequence(bt_connect, sizeof(bt_connect) / sizeof(bt_connect[0]), sys_volume);
+            audio_play_chord_sequence(bt_connect, sizeof(bt_connect) / sizeof(bt_connect[0]), sys_volume);
             break;
         case AUDIO_SYS_TONE_BT_DISCONNECT:
-            audio_play_pluck_sequence(bt_disconnect, sizeof(bt_disconnect) / sizeof(bt_disconnect[0]), sys_volume);
+            audio_play_chord_sequence(bt_disconnect, sizeof(bt_disconnect) / sizeof(bt_disconnect[0]), sys_volume);
             break;
         default: {
             static const audio_tone_step_t placeholder[] = {

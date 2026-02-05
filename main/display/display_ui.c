@@ -182,7 +182,11 @@ void display_ui_render(void)
         overlay_unlock();
     }
 
-    display_set_time(s_time.hours, s_time.minutes, s_time.colon);
+    if (s_time.hours <= 23 && s_time.minutes <= 59) {
+        display_set_time(s_time.hours, s_time.minutes, s_time.colon);
+    } else {
+        display_set_text("----", true);
+    }
 }
 
 bool display_ui_overlay_active(void)

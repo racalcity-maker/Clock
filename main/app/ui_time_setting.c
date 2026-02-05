@@ -40,7 +40,9 @@ static void time_setting_apply(void)
         .tv_sec = epoch,
         .tv_usec = 0
     };
-    settimeofday(&tv, NULL);
+    if (settimeofday(&tv, NULL) == 0) {
+        clock_time_mark_valid();
+    }
 }
 
 void ui_time_setting_render(void)

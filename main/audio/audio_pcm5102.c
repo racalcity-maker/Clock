@@ -12,6 +12,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include <math.h>
 #include <stdbool.h>
 #include <string.h>
 
@@ -22,13 +23,20 @@
 #define AUDIO_I2S_TIMEOUT_MS 5000
 #define AUDIO_EQ_CHUNK_FRAMES 256
 #define AUDIO_KS_MAX_DELAY 512
+#define AUDIO_SINE_LUT_SIZE 256
+#define AUDIO_SINE_LUT_MASK (AUDIO_SINE_LUT_SIZE - 1U)
 
 static const char *TAG = "audio_pcm5102";
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 typedef enum {
     AUDIO_WAVE_SILENCE = 0,
     AUDIO_WAVE_SQUARE,
-    AUDIO_WAVE_KARPLUS
+    AUDIO_WAVE_KARPLUS,
+    AUDIO_WAVE_CHORD
 } audio_wave_t;
 
 typedef struct {
@@ -37,6 +45,12 @@ typedef struct {
     uint8_t volume;
     audio_wave_t wave;
     uint16_t damping_q15;
+    uint16_t chord_freq_hz[3];
+    int8_t chord_detune_cents[3];
+    uint16_t chord_attack_ms;
+    uint16_t chord_decay_ms;
+    uint16_t chord_sustain_q15;
+    uint16_t chord_release_ms;
 } audio_cmd_t;
 
 static QueueHandle_t s_cmd_queue = NULL;
@@ -49,6 +63,27 @@ static volatile bool s_i2s_enabled = false;
 static SemaphoreHandle_t s_i2s_mutex = NULL;
 static int16_t s_eq_buf[AUDIO_EQ_CHUNK_FRAMES * 2];
 static int16_t s_ks_buf[AUDIO_KS_MAX_DELAY];
+static int16_t s_sine_lut[AUDIO_SINE_LUT_SIZE];
+static bool s_sine_ready = false;
+
+static void audio_sine_init(void)
+{
+    if (s_sine_ready) {
+        return;
+    }
+    for (uint32_t i = 0; i < AUDIO_SINE_LUT_SIZE; ++i) {
+        float angle = (2.0f * (float)M_PI * (float)i) / (float)AUDIO_SINE_LUT_SIZE;
+        float v = sinf(angle);
+        int32_t sample = (int32_t)(v * 32767.0f);
+        if (sample > 32767) {
+            sample = 32767;
+        } else if (sample < -32768) {
+            sample = -32768;
+        }
+        s_sine_lut[i] = (int16_t)sample;
+    }
+    s_sine_ready = true;
+}
 
 static void audio_write_silence(uint32_t duration_ms)
 {
@@ -200,6 +235,153 @@ static void audio_write_karplus(uint16_t freq_hz, uint32_t duration_ms, uint8_t 
     }
 }
 
+static uint32_t audio_calc_phase_inc(float freq_hz)
+{
+    if (freq_hz <= 0.0f) {
+        return 0;
+    }
+    float inc = (freq_hz * (float)AUDIO_SINE_LUT_SIZE * 65536.0f) / (float)AUDIO_SAMPLE_RATE;
+    if (inc < 1.0f) {
+        return 0;
+    }
+    if (inc > 4294967295.0f) {
+        inc = 4294967295.0f;
+    }
+    return (uint32_t)(inc + 0.5f);
+}
+
+static void audio_write_chord(const audio_cmd_t *cmd)
+{
+    if (!cmd || cmd->duration_ms == 0) {
+        audio_write_silence(cmd ? cmd->duration_ms : 0);
+        return;
+    }
+
+    audio_sine_init();
+
+    uint32_t total_frames = (AUDIO_SAMPLE_RATE * cmd->duration_ms) / 1000U;
+    if (total_frames == 0) {
+        total_frames = 1;
+    }
+
+    uint32_t attack_frames = (AUDIO_SAMPLE_RATE * cmd->chord_attack_ms) / 1000U;
+    uint32_t decay_frames = (AUDIO_SAMPLE_RATE * cmd->chord_decay_ms) / 1000U;
+    uint32_t release_frames = (AUDIO_SAMPLE_RATE * cmd->chord_release_ms) / 1000U;
+
+    uint32_t total_env = attack_frames + decay_frames + release_frames;
+    if (total_env > total_frames) {
+        uint32_t excess = total_env - total_frames;
+        if (release_frames >= excess) {
+            release_frames -= excess;
+            excess = 0;
+        } else {
+            excess -= release_frames;
+            release_frames = 0;
+        }
+        if (excess) {
+            if (decay_frames >= excess) {
+                decay_frames -= excess;
+                excess = 0;
+            } else {
+                excess -= decay_frames;
+                decay_frames = 0;
+            }
+        }
+        if (excess) {
+            if (attack_frames >= excess) {
+                attack_frames -= excess;
+            } else {
+                attack_frames = 0;
+            }
+        }
+    }
+
+    uint32_t sustain_frames = total_frames - attack_frames - decay_frames - release_frames;
+    uint32_t sustain_q15 = cmd->chord_sustain_q15;
+    if (sustain_q15 > 32767U) {
+        sustain_q15 = 32767U;
+    }
+
+    uint32_t phase[3] = {0, 0, 0};
+    uint32_t phase_inc[3] = {0, 0, 0};
+    for (size_t i = 0; i < 3; ++i) {
+        if (cmd->chord_freq_hz[i] == 0) {
+            phase_inc[i] = 0;
+            continue;
+        }
+        float cents = (float)cmd->chord_detune_cents[i];
+        float detune = powf(2.0f, cents / 1200.0f);
+        float freq = (float)cmd->chord_freq_hz[i] * detune;
+        phase_inc[i] = audio_calc_phase_inc(freq);
+    }
+
+    int16_t frame[AUDIO_CHUNK_FRAMES * 2];
+    size_t bytes_written = 0;
+
+    uint32_t release_start = total_frames - release_frames;
+    for (uint32_t offset = 0; offset < total_frames; ) {
+        if (s_stop_requested) {
+            break;
+        }
+        uint32_t frames = total_frames - offset;
+        if (frames > AUDIO_CHUNK_FRAMES) {
+            frames = AUDIO_CHUNK_FRAMES;
+        }
+
+        for (uint32_t i = 0; i < frames; ++i) {
+            uint32_t frame_idx = offset + i;
+            uint32_t env_q15 = 0;
+            if (attack_frames > 0 && frame_idx < attack_frames) {
+                env_q15 = (frame_idx * 32767U) / attack_frames;
+            } else if (decay_frames > 0 && frame_idx < (attack_frames + decay_frames)) {
+                uint32_t t = frame_idx - attack_frames;
+                uint32_t diff = 32767U - sustain_q15;
+                env_q15 = 32767U - (diff * t) / decay_frames;
+            } else if (frame_idx < (attack_frames + decay_frames + sustain_frames)) {
+                env_q15 = sustain_q15;
+            } else if (release_frames > 0 && frame_idx >= release_start) {
+                uint32_t rel_idx = frame_idx - release_start;
+                if (rel_idx >= release_frames) {
+                    env_q15 = 0;
+                } else {
+                    env_q15 = (sustain_q15 * (release_frames - rel_idx)) / release_frames;
+                }
+            } else {
+                env_q15 = 0;
+            }
+
+            int32_t mix_q15 = 0;
+            uint32_t active = 0;
+            for (size_t v = 0; v < 3; ++v) {
+                if (phase_inc[v] == 0) {
+                    continue;
+                }
+                phase[v] += phase_inc[v];
+                uint32_t idx = (phase[v] >> 16) & AUDIO_SINE_LUT_MASK;
+                mix_q15 += s_sine_lut[idx];
+                active++;
+            }
+            int32_t sample = 0;
+            if (active > 0) {
+                mix_q15 /= (int32_t)active;
+                sample = (mix_q15 * AUDIO_AMPLITUDE) / 32767;
+                sample = (sample * (int32_t)cmd->volume) / 255;
+                sample = (sample * (int32_t)env_q15) / 32767;
+            }
+            if (sample > 32767) {
+                sample = 32767;
+            } else if (sample < -32768) {
+                sample = -32768;
+            }
+            frame[i * 2] = (int16_t)sample;
+            frame[i * 2 + 1] = (int16_t)sample;
+        }
+
+        audio_i2s_write(frame, frames * sizeof(int16_t) * 2, &bytes_written, AUDIO_I2S_TIMEOUT_MS);
+        offset += frames;
+    }
+}
+
 static void audio_task(void *arg)
 {
     (void)arg;
@@ -219,6 +401,8 @@ static void audio_task(void *arg)
             audio_write_silence(cmd.duration_ms);
         } else if (cmd.wave == AUDIO_WAVE_KARPLUS) {
             audio_write_karplus(cmd.freq_hz, cmd.duration_ms, cmd.volume, cmd.damping_q15);
+        } else if (cmd.wave == AUDIO_WAVE_CHORD) {
+            audio_write_chord(&cmd);
         } else {
             audio_write_tone(cmd.freq_hz, cmd.duration_ms, cmd.volume);
         }
@@ -290,6 +474,7 @@ esp_err_t audio_init(void)
     s_i2s_enabled = true;
 
     audio_eq_init(AUDIO_SAMPLE_RATE);
+    audio_sine_init();
 
     s_cmd_queue = xQueueCreate(AUDIO_QUEUE_DEPTH, sizeof(audio_cmd_t));
     if (!s_cmd_queue) {
@@ -540,6 +725,31 @@ static void audio_queue_pluck(uint16_t freq_hz, uint32_t duration_ms, uint8_t vo
     xQueueSend(s_cmd_queue, &cmd, 0);
 }
 
+static void audio_queue_chord(const audio_chord_step_t *step, uint8_t volume)
+{
+    if (!s_audio_ready || !s_cmd_queue || !step) {
+        return;
+    }
+    audio_cmd_t cmd = {
+        .freq_hz = 0,
+        .duration_ms = step->duration_ms,
+        .volume = volume,
+        .wave = AUDIO_WAVE_CHORD,
+        .damping_q15 = 0,
+        .chord_freq_hz = {0, 0, 0},
+        .chord_detune_cents = {0, 0, 0},
+        .chord_attack_ms = step->attack_ms,
+        .chord_decay_ms = step->decay_ms,
+        .chord_sustain_q15 = step->sustain_q15,
+        .chord_release_ms = step->release_ms
+    };
+    for (size_t i = 0; i < 3; ++i) {
+        cmd.chord_freq_hz[i] = step->freq_hz[i];
+        cmd.chord_detune_cents[i] = step->detune_cents[i];
+    }
+    xQueueSend(s_cmd_queue, &cmd, 0);
+}
+
 static void audio_queue_silence(uint32_t duration_ms)
 {
     if (!s_audio_ready || !s_cmd_queue) {
@@ -585,6 +795,18 @@ void audio_play_pluck_sequence(const audio_pluck_step_t *seq, size_t count, uint
     s_stop_requested = false;
     for (size_t i = 0; i < count; ++i) {
         audio_queue_pluck(seq[i].freq_hz, seq[i].duration_ms, volume, seq[i].damping_q15);
+    }
+    audio_queue_silence(30);
+}
+
+void audio_play_chord_sequence(const audio_chord_step_t *seq, size_t count, uint8_t volume)
+{
+    if (!seq || count == 0) {
+        return;
+    }
+    s_stop_requested = false;
+    for (size_t i = 0; i < count; ++i) {
+        audio_queue_chord(&seq[i], volume);
     }
     audio_queue_silence(30);
 }

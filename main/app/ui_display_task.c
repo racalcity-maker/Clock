@@ -192,6 +192,15 @@ static bool music_is_playing(app_ui_mode_t mode)
     return (audio_player_get_state() == PLAYER_STATE_PLAYING);
 }
 
+static void render_clock_or_placeholder(void)
+{
+    if (clock_time_is_valid()) {
+        display_set_time(s_last_hours, s_last_minutes, s_last_colon);
+    } else {
+        display_set_text("----", true);
+    }
+}
+
 static void display_task(void *arg)
 {
     (void)arg;
@@ -231,10 +240,19 @@ static void display_task(void *arg)
 
         if (s_soft_off && *s_soft_off) {
             if (tick == 0) {
-                struct tm now;
-                clock_time_get(&now);
-                colon = !colon;
-                display_set_time((uint8_t)now.tm_hour, (uint8_t)now.tm_min, colon);
+                if (clock_time_is_valid()) {
+                    struct tm now;
+                    clock_time_get(&now);
+                    colon = !colon;
+                    s_last_hours = (uint8_t)now.tm_hour;
+                    s_last_minutes = (uint8_t)now.tm_min;
+                    s_last_colon = colon;
+                } else {
+                    s_last_hours = 0xFF;
+                    s_last_minutes = 0xFF;
+                    s_last_colon = true;
+                }
+                render_clock_or_placeholder();
             }
             tick = (tick + 1) % 10;
             vTaskDelay(pdMS_TO_TICKS(100));
@@ -253,13 +271,19 @@ static void display_task(void *arg)
         }
 
         if (tick == 0) {
-            struct tm now;
-            clock_time_get(&now);
-            colon = !colon;
-            s_last_hours = (uint8_t)now.tm_hour;
-            s_last_minutes = (uint8_t)now.tm_min;
-            s_last_colon = colon;
-            display_ui_set_time(s_last_hours, s_last_minutes, colon);
+            if (clock_time_is_valid()) {
+                struct tm now;
+                clock_time_get(&now);
+                colon = !colon;
+                s_last_hours = (uint8_t)now.tm_hour;
+                s_last_minutes = (uint8_t)now.tm_min;
+                s_last_colon = colon;
+            } else {
+                s_last_hours = 0xFF;
+                s_last_minutes = 0xFF;
+                s_last_colon = true;
+            }
+            display_ui_set_time(s_last_hours, s_last_minutes, s_last_colon);
         }
 
         app_ui_mode_t mode = app_get_ui_mode();
@@ -291,7 +315,7 @@ static void display_task(void *arg)
                 if (display_ui_overlay_active()) {
                     display_ui_show_text(NULL, 0);
                 }
-                display_set_time(s_last_hours, s_last_minutes, s_last_colon);
+                render_clock_or_placeholder();
             } else {
                 display_ui_render();
             }
