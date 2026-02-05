@@ -210,7 +210,7 @@ void encoder_init(encoder_event_cb_t cb)
     gpio_isr_handler_add(PIN_ENC_BTN, enc_btn_isr, NULL);
 
     s_last_ab_state = read_ab_state();
-    if (xTaskCreate(encoder_task, "encoder_task", 2048, NULL, 9, &s_enc_task) != pdPASS) {
+    if (xTaskCreate(encoder_task, "encoder_task", 1536, NULL, 9, &s_enc_task) != pdPASS) {
         gpio_isr_handler_remove(PIN_ENC_A);
         gpio_isr_handler_remove(PIN_ENC_B);
         gpio_isr_handler_remove(PIN_ENC_BTN);

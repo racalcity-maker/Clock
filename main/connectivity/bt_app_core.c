@@ -517,7 +517,7 @@ void bt_app_task_start_up(void)
         }
     }
     if (!s_bt_app_task_handle) {
-        BaseType_t created = xTaskCreate(bt_app_task_handler, "BtAppTask", 4096, NULL, 10, &s_bt_app_task_handle);
+        BaseType_t created = xTaskCreate(bt_app_task_handler, "BtAppTask", 2048, NULL, 10, &s_bt_app_task_handle);
         if (created != pdPASS) {
             ESP_LOGE(BT_APP_CORE_TAG, "BtAppTask create failed");
             s_bt_app_task_handle = NULL;
@@ -575,7 +575,7 @@ void bt_i2s_task_start_up(void)
     if (!s_bt_i2s_task_handle) {
         BaseType_t created = xTaskCreate(bt_i2s_task_handler,
                                          "BtI2STask",
-                                         4096,
+                                         2048,
                                          NULL,
                                          9,
                                          &s_bt_i2s_task_handle);

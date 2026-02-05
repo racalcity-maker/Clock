@@ -23,6 +23,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
+#include <string.h>
 
 // Temporary test mode: cycles UI modes every 10 seconds.
 #define UI_MODE_TEST_CYCLE 0
@@ -104,6 +105,7 @@ static void ui_mode_log_heap(const char *tag)
              (unsigned)info.largest_free_block,
              (unsigned)bt_rb);
 }
+
 
 static void ui_cmd_start(void)
 {

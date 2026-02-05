@@ -173,7 +173,7 @@ void ui_input_init(encoder_event_cb_t encoder_cb, adc_key_event_cb_t adc_cb)
     }
 
     if (s_input_queue && !s_input_task) {
-        if (xTaskCreate(input_dispatch_task, "ui_input", 2048, NULL, 7, &s_input_task) != pdPASS) {
+        if (xTaskCreate(input_dispatch_task, "ui_input", 1536, NULL, 7, &s_input_task) != pdPASS) {
             s_input_task = NULL;
             vQueueDelete(s_input_queue);
             s_input_queue = NULL;

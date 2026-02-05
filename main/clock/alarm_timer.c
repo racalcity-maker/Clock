@@ -83,7 +83,7 @@ void alarm_timer_init(alarm_event_cb_t cb)
     if (s_alarm_task_handle) {
         return;
     }
-    if (xTaskCreate(alarm_timer_task, "alarm_timer", 4096, NULL, 5, &s_alarm_task_handle) != pdPASS) {
+    if (xTaskCreate(alarm_timer_task, "alarm_timer", 3072, NULL, 5, &s_alarm_task_handle) != pdPASS) {
         s_alarm_task_handle = NULL;
         ESP_LOGE(TAG, "alarm timer task create failed");
     }

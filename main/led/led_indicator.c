@@ -139,7 +139,7 @@ esp_err_t led_indicator_init(void)
     s_led_ready = true;
     led_indicator_set_rgb(0, 0, 0);
     if (!s_led_task) {
-        if (xTaskCreate(led_indicator_task, "led_indicator", 2048, NULL, 4, &s_led_task) != pdPASS) {
+        if (xTaskCreate(led_indicator_task, "led_indicator", 1536, NULL, 4, &s_led_task) != pdPASS) {
             s_led_task = NULL;
             s_led_ready = false;
             if (s_led_mutex) {

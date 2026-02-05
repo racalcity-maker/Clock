@@ -406,7 +406,7 @@ void ui_display_task_start(void)
     if (s_task_started) {
         return;
     }
-    if (xTaskCreate(display_task, "display_task", 3072, NULL, 5, &s_display_task_handle) == pdPASS) {
+    if (xTaskCreate(display_task, "display_task", 2560, NULL, 5, &s_display_task_handle) == pdPASS) {
         s_task_started = true;
     } else {
         s_display_task_handle = NULL;

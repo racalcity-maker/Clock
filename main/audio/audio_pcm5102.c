@@ -486,7 +486,7 @@ esp_err_t audio_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    if (xTaskCreate(audio_task, "audio_task", 4096, NULL, 8, &s_audio_task) != pdPASS) {
+    if (xTaskCreate(audio_task, "audio_task", 3072, NULL, 8, &s_audio_task) != pdPASS) {
         vQueueDelete(s_cmd_queue);
         s_cmd_queue = NULL;
         i2s_channel_disable(s_tx_chan);

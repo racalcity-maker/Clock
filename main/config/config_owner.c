@@ -74,7 +74,7 @@ void config_owner_start(void)
         ESP_LOGW(TAG, "config queue create failed");
         return;
     }
-    if (xTaskCreate(cfg_owner_task, "cfg_owner", 4096, NULL, 5, &s_cfg_task) != pdPASS) {
+    if (xTaskCreate(cfg_owner_task, "cfg_owner", 2048, NULL, 5, &s_cfg_task) != pdPASS) {
         ESP_LOGW(TAG, "config task create failed");
         vQueueDelete(s_cfg_queue);
         s_cfg_queue = NULL;

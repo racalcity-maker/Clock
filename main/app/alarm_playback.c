@@ -60,7 +60,7 @@ void alarm_playback_init(void)
         s_alarm_queue = xQueueCreate(4, sizeof(alarm_cmd_t));
     }
     if (s_alarm_queue && !s_alarm_task) {
-        if (xTaskCreate(alarm_playback_task, "alarm_playback", 4096, NULL, 7, &s_alarm_task) != pdPASS) {
+        if (xTaskCreate(alarm_playback_task, "alarm_playback", 2048, NULL, 7, &s_alarm_task) != pdPASS) {
             s_alarm_task = NULL;
             vQueueDelete(s_alarm_queue);
             s_alarm_queue = NULL;
