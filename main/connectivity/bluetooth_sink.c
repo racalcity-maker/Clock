@@ -34,6 +34,8 @@ static uint8_t s_pm_id = BTM_PM_SET_ONLY_ID;
 static esp_a2d_audio_state_t s_a2d_audio_state = ESP_A2D_AUDIO_STATE_SUSPEND;
 static bool s_gap_cb_registered = false;
 static bool s_a2dp_cb_registered = false;
+static esp_timer_handle_t s_autoconnect_timer = NULL;
+static bool s_autoconnect_allowed = false;
 
 static void bt_drop_bond(const esp_bd_addr_t bda);
 static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param);
@@ -42,6 +44,9 @@ static inline int64_t bt_last_audio_get(void);
 static void bt_pm_force_active(const esp_bd_addr_t bda);
 static void bt_link_policy_disable_sniff(const esp_bd_addr_t bda);
 static void bt_set_link_supervision_timeout(const esp_bd_addr_t bda);
+static bool bt_get_last_bonded(esp_bd_addr_t out);
+static void bt_autoconnect_timer_cb(void *arg);
+static void bt_autoconnect_disable(void);
 
 #if defined(CONFIG_BT_A2DP_ENABLE) && CONFIG_BT_A2DP_ENABLE
 #include "esp_a2dp_api.h"
@@ -56,6 +61,7 @@ static void bt_sink_reset_state(void)
     s_a2d_audio_state = ESP_A2D_AUDIO_STATE_SUSPEND;
     bt_last_audio_set(0);
     memset(s_connected_bda, 0, sizeof(s_connected_bda));
+    bt_autoconnect_disable();
 }
 
 #if defined(CONFIG_BT_A2DP_ENABLE) && CONFIG_BT_A2DP_ENABLE
@@ -66,6 +72,7 @@ static void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
     }
     switch (event) {
         case ESP_A2D_CONNECTION_STATE_EVT:
+            ESP_LOGI(TAG, "a2dp conn state=%d", param->conn_stat.state);
             bool was_connected = s_bt_connected;
             if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
                 s_bt_connected = true;
@@ -85,6 +92,7 @@ static void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
                 s_bt_streaming = false;
                 s_a2d_audio_state = ESP_A2D_AUDIO_STATE_SUSPEND;
                 bt_last_audio_set(0);
+                bt_autoconnect_disable();
                 if (was_connected) {
                     audio_play_system_tone(AUDIO_SYS_TONE_BT_DISCONNECT);
                 }
@@ -94,6 +102,7 @@ static void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
             }
             break;
         case ESP_A2D_AUDIO_STATE_EVT:
+            ESP_LOGI(TAG, "a2dp audio state=%d", param->audio_stat.state);
             s_bt_streaming = (param->audio_stat.state == ESP_A2D_AUDIO_STATE_STARTED);
             s_a2d_audio_state = param->audio_stat.state;
             break;
@@ -116,10 +125,26 @@ static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
             }
             break;
         case ESP_BT_GAP_ACL_CONN_CMPL_STAT_EVT:
+            ESP_LOGI(TAG, "acl conn stat=%d", param->acl_conn_cmpl_stat.stat);
             if (param->acl_conn_cmpl_stat.stat == ESP_BT_STATUS_SUCCESS) {
                 bt_link_policy_disable_sniff(param->acl_conn_cmpl_stat.bda);
                 bt_pm_force_active(param->acl_conn_cmpl_stat.bda);
                 bt_set_link_supervision_timeout(param->acl_conn_cmpl_stat.bda);
+            }
+            break;
+        case ESP_BT_GAP_ACL_DISCONN_CMPL_STAT_EVT:
+            ESP_LOGI(TAG, "acl disconnect reason=0x%02x", param->acl_disconn_cmpl_stat.reason);
+            if (s_bt_connected) {
+                s_bt_connected = false;
+                s_bt_streaming = false;
+                s_a2d_audio_state = ESP_A2D_AUDIO_STATE_SUSPEND;
+                bt_last_audio_set(0);
+                memset(s_connected_bda, 0, sizeof(s_connected_bda));
+                audio_play_system_tone(AUDIO_SYS_TONE_BT_DISCONNECT);
+            }
+            bt_autoconnect_disable();
+            if (s_discoverable_requested) {
+                esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
             }
             break;
         case ESP_BT_GAP_PIN_REQ_EVT: {
@@ -163,6 +188,45 @@ static inline void bt_last_audio_set(int64_t value)
 static inline int64_t bt_last_audio_get(void)
 {
     return __atomic_load_n(&s_last_audio_data_us, __ATOMIC_RELAXED);
+}
+
+static bool bt_get_last_bonded(esp_bd_addr_t out)
+{
+    int dev_num = esp_bt_gap_get_bond_device_num();
+    if (dev_num <= 0) {
+        return false;
+    }
+
+    esp_bd_addr_t *dev_list = calloc((size_t)dev_num, sizeof(esp_bd_addr_t));
+    if (!dev_list) {
+        return false;
+    }
+
+    int list_num = dev_num;
+    esp_err_t err = esp_bt_gap_get_bond_device_list(&list_num, dev_list);
+    if (err != ESP_OK || list_num <= 0) {
+        free(dev_list);
+        return false;
+    }
+
+    memcpy(out, dev_list[list_num - 1], sizeof(esp_bd_addr_t));
+    free(dev_list);
+    return true;
+}
+
+static void bt_autoconnect_timer_cb(void *arg)
+{
+    (void)arg;
+    bt_sink_try_connect_last();
+}
+
+static void bt_autoconnect_disable(void)
+{
+    s_autoconnect_allowed = false;
+    if (s_autoconnect_timer) {
+        ESP_LOGI(TAG, "bt autoconnect disabled");
+        esp_timer_stop(s_autoconnect_timer);
+    }
 }
 
 static void bt_pm_force_active(const esp_bd_addr_t bda)
@@ -369,6 +433,7 @@ esp_err_t bt_sink_set_discoverable(bool enabled)
         return ESP_ERR_INVALID_STATE;
     }
     s_discoverable_requested = enabled;
+    ESP_LOGI(TAG, "bt discoverable=%d", enabled ? 1 : 0);
     esp_bt_connection_mode_t c_mode = enabled ? ESP_BT_CONNECTABLE : ESP_BT_NON_CONNECTABLE;
     esp_bt_discovery_mode_t d_mode = enabled ? ESP_BT_GENERAL_DISCOVERABLE : ESP_BT_NON_DISCOVERABLE;
     esp_err_t err = esp_bt_gap_set_scan_mode(c_mode, d_mode);
@@ -422,18 +487,62 @@ bool bt_sink_is_playing(void)
 
 bool bt_sink_has_saved_device(void)
 {
-    return false;
+    if (!s_bt_ready) {
+        return false;
+    }
+    return esp_bt_gap_get_bond_device_num() > 0;
 }
 
 esp_err_t bt_sink_try_connect_last(void)
 {
+    if (!s_bt_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!s_autoconnect_allowed) {
+        ESP_LOGI(TAG, "bt autoconnect blocked");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_bt_connected) {
+        return ESP_OK;
+    }
+#if defined(CONFIG_BT_A2DP_ENABLE) && CONFIG_BT_A2DP_ENABLE
+    esp_bd_addr_t bda;
+    if (!bt_get_last_bonded(bda)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    esp_err_t err = esp_a2d_sink_connect(bda);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "bt connect last failed: %s", esp_err_to_name(err));
+    }
+    return err;
+#else
     return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 esp_err_t bt_sink_schedule_connect_last(uint32_t delay_ms)
 {
-    (void)delay_ms;
-    return ESP_ERR_NOT_SUPPORTED;
+    if (!s_bt_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_bt_connected) {
+        return ESP_OK;
+    }
+    s_autoconnect_allowed = true;
+    ESP_LOGI(TAG, "bt autoconnect schedule=%u ms", (unsigned)delay_ms);
+    if (!s_autoconnect_timer) {
+        const esp_timer_create_args_t args = {
+            .callback = bt_autoconnect_timer_cb,
+            .name = "bt_autoconnect"
+        };
+        esp_err_t err = esp_timer_create(&args, &s_autoconnect_timer);
+        if (err != ESP_OK) {
+            return err;
+        }
+    } else {
+        esp_timer_stop(s_autoconnect_timer);
+    }
+    return esp_timer_start_once(s_autoconnect_timer, (uint64_t)delay_ms * 1000ULL);
 }
 
 esp_err_t bt_sink_disconnect(void)

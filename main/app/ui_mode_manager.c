@@ -16,6 +16,7 @@
 #include "web_config.h"
 #include "wifi_ntp.h"
 #include "power_manager.h"
+#include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
@@ -30,12 +31,16 @@
 #define UI_MODE_HEAP_LOG 0
 #define UI_MODE_TEST_INTERVAL_MS 15000
 #define UI_MODE_HEAP_LOG_INTERVAL_MS (5 * 60 * 1000)
+#define UI_MODE_BT_IDLE_TIMEOUT_MS (3 * 60 * 1000)
 
 static const char *TAG = "ui_mode";
 
 static app_config_t *s_cfg = NULL;
 static uint8_t *s_display_brightness = NULL;
 static bool *s_soft_off = NULL;
+static esp_timer_handle_t s_bt_idle_timer = NULL;
+static bool s_bt_connected_state = false;
+static bool s_bt_idle_timer_active = false;
 
 typedef enum {
     UI_MODE_CLOCK,
@@ -92,6 +97,9 @@ static void enter_bluetooth_mode(void);
 static void stop_player_and_flush(void);
 static void wait_for_heap_release(uint32_t settle_ms, uint32_t timeout_ms);
 static void ui_mode_log_heap(const char *tag);
+static void bt_idle_timer_cb(void *arg);
+static void bt_idle_timer_start(void);
+static void bt_idle_timer_stop(void);
 
 static void ui_mode_log_heap(const char *tag)
 {
@@ -104,6 +112,44 @@ static void ui_mode_log_heap(const char *tag)
              (unsigned)info.total_free_bytes,
              (unsigned)info.largest_free_block,
              (unsigned)bt_rb);
+}
+
+static void bt_idle_timer_cb(void *arg)
+{
+    (void)arg;
+    if (s_ui_mode != UI_MODE_BLUETOOTH) {
+        return;
+    }
+    if (bt_sink_is_connected() || bt_avrc_is_connected()) {
+        return;
+    }
+    app_request_ui_mode(APP_UI_MODE_CLOCK);
+}
+
+static void bt_idle_timer_start(void)
+{
+    if (!s_bt_idle_timer) {
+        const esp_timer_create_args_t args = {
+            .callback = bt_idle_timer_cb,
+            .name = "bt_idle"
+        };
+        if (esp_timer_create(&args, &s_bt_idle_timer) != ESP_OK) {
+            s_bt_idle_timer = NULL;
+            return;
+        }
+    } else {
+        esp_timer_stop(s_bt_idle_timer);
+    }
+    esp_timer_start_once(s_bt_idle_timer, (uint64_t)UI_MODE_BT_IDLE_TIMEOUT_MS * 1000ULL);
+    s_bt_idle_timer_active = true;
+}
+
+static void bt_idle_timer_stop(void)
+{
+    if (s_bt_idle_timer) {
+        esp_timer_stop(s_bt_idle_timer);
+    }
+    s_bt_idle_timer_active = false;
 }
 
 
@@ -267,6 +313,18 @@ static void ui_cmd_task(void *arg)
             }
         }
 
+        if (s_ui_mode == UI_MODE_BLUETOOTH) {
+            bool connected = bt_sink_is_connected() || bt_avrc_is_connected();
+            if (connected != s_bt_connected_state) {
+                s_bt_connected_state = connected;
+                if (connected) {
+                    bt_idle_timer_stop();
+                } else {
+                    bt_idle_timer_start();
+                }
+            }
+        }
+
         int64_t now = esp_timer_get_time();
         if (s_next_heap_log_us == 0 || now >= s_next_heap_log_us) {
             ui_mode_log_heap("periodic");
@@ -370,6 +428,7 @@ void app_set_ui_mode(app_ui_mode_t mode)
 static void enter_clock_mode(void)
 {
     display_pause_refresh(true);
+    bt_idle_timer_stop();
     stop_player_and_flush();
     if (bt_sink_is_ready()) {
         bt_sink_set_discoverable(false);
@@ -393,6 +452,7 @@ static void enter_clock_mode(void)
 static void enter_player_mode(void)
 {
     display_pause_refresh(true);
+    bt_idle_timer_stop();
     if (bt_sink_is_ready()) {
         if (bt_sink_is_connected() || bt_avrc_is_connected()) {
             bt_sink_disconnect();
@@ -422,6 +482,12 @@ static void enter_player_mode(void)
 static void enter_bluetooth_mode(void)
 {
     display_pause_refresh(true);
+    s_bt_connected_state = bt_sink_is_connected() || bt_avrc_is_connected();
+    if (s_bt_connected_state) {
+        bt_idle_timer_stop();
+    } else if (!s_bt_idle_timer_active) {
+        bt_idle_timer_start();
+    }
     display_set_text("    ", false);
     ESP_LOGD(TAG, "bt switch: stop tasks: display_task, power_monitor");
     ui_display_task_pause();
@@ -464,7 +530,16 @@ static void enter_bluetooth_mode(void)
 #endif
     display_pause_refresh(false);
     bt_sink_set_discoverable(true);
-    ESP_LOGD(TAG, "bt autoconnect disabled; waiting for source");
+    if (bt_sink_has_saved_device()) {
+        esp_err_t err = bt_sink_schedule_connect_last(800);
+        if (err == ESP_OK) {
+            ESP_LOGD(TAG, "bt autoconnect scheduled");
+        } else {
+            ESP_LOGW(TAG, "bt autoconnect failed: %s", esp_err_to_name(err));
+        }
+    } else {
+        ESP_LOGD(TAG, "bt autoconnect skipped; waiting for source");
+    }
 }
 
 static void stop_player_and_flush(void)
