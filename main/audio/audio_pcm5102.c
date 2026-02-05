@@ -23,8 +23,9 @@
 #define AUDIO_I2S_TIMEOUT_MS 5000
 #define AUDIO_EQ_CHUNK_FRAMES 256
 #define AUDIO_KS_MAX_DELAY 512
-#define AUDIO_SINE_LUT_SIZE 256
+#define AUDIO_SINE_LUT_SIZE 1024
 #define AUDIO_SINE_LUT_MASK (AUDIO_SINE_LUT_SIZE - 1U)
+#define AUDIO_CHORD_LPF_ALPHA_Q15 13631
 
 static const char *TAG = "audio_pcm5102";
 
@@ -317,6 +318,7 @@ static void audio_write_chord(const audio_cmd_t *cmd)
 
     int16_t frame[AUDIO_CHUNK_FRAMES * 2];
     size_t bytes_written = 0;
+    int32_t lp_state = 0;
 
     uint32_t release_start = total_frames - release_frames;
     for (uint32_t offset = 0; offset < total_frames; ) {
@@ -368,6 +370,8 @@ static void audio_write_chord(const audio_cmd_t *cmd)
                 sample = (sample * (int32_t)cmd->volume) / 255;
                 sample = (sample * (int32_t)env_q15) / 32767;
             }
+            lp_state += ((sample - lp_state) * AUDIO_CHORD_LPF_ALPHA_Q15) >> 15;
+            sample = lp_state;
             if (sample > 32767) {
                 sample = 32767;
             } else if (sample < -32768) {

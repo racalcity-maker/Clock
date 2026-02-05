@@ -5,12 +5,12 @@
 static uint8_t system_tone_volume(uint8_t volume)
 {
     // Keep system tones softer than music/alarm to avoid sharp square-wave clicks.
-    uint16_t scaled = ((uint16_t)volume * 40U + 50U) / 100U;
-    if (scaled < 28U) {
-        scaled = 28U;
+    uint16_t scaled = ((uint16_t)volume * 60U + 50U) / 100U;
+    if (scaled < 64U) {
+        scaled = 64U;
     }
-    if (scaled > 112U) {
-        scaled = 112U;
+    if (scaled > 180U) {
+        scaled = 180U;
     }
     return (uint8_t)scaled;
 }
@@ -32,15 +32,15 @@ void audio_tones_play_system(uint8_t tone, uint8_t volume)
     static const uint16_t chord_attack_ms = 8;
     static const uint16_t chord_decay_ms = 90;
     static const uint16_t chord_release_ms = 62;
-    static const uint16_t chord_sustain_q15 = 18000;
+    static const uint16_t chord_sustain_q15 = 24000;
 
     static const audio_chord_step_t bt_connect[] = {
-        { {262, 330, 392}, { -4, 0, 4 }, chord_step_ms, chord_attack_ms, chord_decay_ms, chord_sustain_q15, chord_release_ms },
-        { {196, 247, 294}, { -4, 0, 4 }, chord_step_ms, chord_attack_ms, chord_decay_ms, chord_sustain_q15, chord_release_ms }
+        { {371, 467, 554}, { -4, 0, 4 }, chord_step_ms, chord_attack_ms, chord_decay_ms, chord_sustain_q15, chord_release_ms },
+        { {277, 349, 416}, { -4, 0, 4 }, chord_step_ms, chord_attack_ms, chord_decay_ms, chord_sustain_q15, chord_release_ms }
     };
     static const audio_chord_step_t bt_disconnect[] = {
-        { {220, 262, 330}, { -4, 0, 4 }, chord_step_ms, chord_attack_ms, chord_decay_ms, chord_sustain_q15, chord_release_ms },
-        { {165, 196, 247}, { -4, 0, 4 }, chord_step_ms, chord_attack_ms, chord_decay_ms, chord_sustain_q15, chord_release_ms }
+        { {311, 370, 467}, { -4, 0, 4 }, chord_step_ms, chord_attack_ms, chord_decay_ms, chord_sustain_q15, chord_release_ms },
+        { {233, 277, 349}, { -4, 0, 4 }, chord_step_ms, chord_attack_ms, chord_decay_ms, chord_sustain_q15, chord_release_ms }
     };
     uint8_t sys_volume = system_tone_volume(volume);
 
