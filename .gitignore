@@ -2,6 +2,7 @@
 /build/
 /old/
 *.zip
+main/todo.txt
 
 # IDE/local settings
 /.vscode/
