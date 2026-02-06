@@ -72,7 +72,7 @@ static void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
     }
     switch (event) {
         case ESP_A2D_CONNECTION_STATE_EVT:
-            ESP_LOGI(TAG, "a2dp conn state=%d", param->conn_stat.state);
+            ESP_LOGD(TAG, "a2dp conn state=%d", param->conn_stat.state);
             bool was_connected = s_bt_connected;
             if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
                 s_bt_connected = true;
@@ -102,7 +102,7 @@ static void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
             }
             break;
         case ESP_A2D_AUDIO_STATE_EVT:
-            ESP_LOGI(TAG, "a2dp audio state=%d", param->audio_stat.state);
+            ESP_LOGD(TAG, "a2dp audio state=%d", param->audio_stat.state);
             s_bt_streaming = (param->audio_stat.state == ESP_A2D_AUDIO_STATE_STARTED);
             s_a2d_audio_state = param->audio_stat.state;
             break;
@@ -125,7 +125,7 @@ static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
             }
             break;
         case ESP_BT_GAP_ACL_CONN_CMPL_STAT_EVT:
-            ESP_LOGI(TAG, "acl conn stat=%d", param->acl_conn_cmpl_stat.stat);
+            ESP_LOGD(TAG, "acl conn stat=%d", param->acl_conn_cmpl_stat.stat);
             if (param->acl_conn_cmpl_stat.stat == ESP_BT_STATUS_SUCCESS) {
                 bt_link_policy_disable_sniff(param->acl_conn_cmpl_stat.bda);
                 bt_pm_force_active(param->acl_conn_cmpl_stat.bda);
@@ -133,7 +133,7 @@ static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
             }
             break;
         case ESP_BT_GAP_ACL_DISCONN_CMPL_STAT_EVT:
-            ESP_LOGI(TAG, "acl disconnect reason=0x%02x", param->acl_disconn_cmpl_stat.reason);
+            ESP_LOGD(TAG, "acl disconnect reason=0x%02x", param->acl_disconn_cmpl_stat.reason);
             if (s_bt_connected) {
                 s_bt_connected = false;
                 s_bt_streaming = false;
@@ -224,7 +224,7 @@ static void bt_autoconnect_disable(void)
 {
     s_autoconnect_allowed = false;
     if (s_autoconnect_timer) {
-        ESP_LOGI(TAG, "bt autoconnect disabled");
+        ESP_LOGD(TAG, "bt autoconnect disabled");
         esp_timer_stop(s_autoconnect_timer);
     }
 }
@@ -433,7 +433,7 @@ esp_err_t bt_sink_set_discoverable(bool enabled)
         return ESP_ERR_INVALID_STATE;
     }
     s_discoverable_requested = enabled;
-    ESP_LOGI(TAG, "bt discoverable=%d", enabled ? 1 : 0);
+    ESP_LOGD(TAG, "bt discoverable=%d", enabled ? 1 : 0);
     esp_bt_connection_mode_t c_mode = enabled ? ESP_BT_CONNECTABLE : ESP_BT_NON_CONNECTABLE;
     esp_bt_discovery_mode_t d_mode = enabled ? ESP_BT_GENERAL_DISCOVERABLE : ESP_BT_NON_DISCOVERABLE;
     esp_err_t err = esp_bt_gap_set_scan_mode(c_mode, d_mode);
@@ -499,7 +499,7 @@ esp_err_t bt_sink_try_connect_last(void)
         return ESP_ERR_INVALID_STATE;
     }
     if (!s_autoconnect_allowed) {
-        ESP_LOGI(TAG, "bt autoconnect blocked");
+        ESP_LOGD(TAG, "bt autoconnect blocked");
         return ESP_ERR_INVALID_STATE;
     }
     if (s_bt_connected) {
@@ -529,7 +529,7 @@ esp_err_t bt_sink_schedule_connect_last(uint32_t delay_ms)
         return ESP_OK;
     }
     s_autoconnect_allowed = true;
-    ESP_LOGI(TAG, "bt autoconnect schedule=%u ms", (unsigned)delay_ms);
+    ESP_LOGD(TAG, "bt autoconnect schedule=%u ms", (unsigned)delay_ms);
     if (!s_autoconnect_timer) {
         const esp_timer_create_args_t args = {
             .callback = bt_autoconnect_timer_cb,
