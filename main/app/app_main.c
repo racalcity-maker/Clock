@@ -141,7 +141,6 @@ void app_main(void)
     audio_eq_set_steps(s_cfg.eq_low, s_cfg.eq_high);
     audio_set_volume(app_volume_steps_to_byte(s_cfg.volume));
     storage_sd_init();
-    audio_player_init("/sdcard/music");
     audio_player_set_volume(app_volume_steps_to_byte(s_cfg.volume));
     bt_avrc_notify_volume(app_volume_steps_to_byte(s_cfg.volume));
     wifi_init(&s_cfg);

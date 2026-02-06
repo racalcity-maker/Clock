@@ -443,9 +443,6 @@ static void enter_clock_mode(void)
     if (!storage_sd_is_mounted()) {
         storage_sd_init();
     }
-    if (!audio_player_is_ready()) {
-        audio_player_init("/sdcard/music");
-    }
     display_pause_refresh(false);
 }
 

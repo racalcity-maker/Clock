@@ -391,6 +391,24 @@ void alarm_sound_init(void)
     }
 }
 
+void alarm_sound_deinit(void)
+{
+    if (!s_cmd_queue && !s_task) {
+        return;
+    }
+    alarm_sound_stop();
+    if (s_task) {
+        vTaskDelete(s_task);
+        s_task = NULL;
+    }
+    if (s_cmd_queue) {
+        vQueueDelete(s_cmd_queue);
+        s_cmd_queue = NULL;
+    }
+    s_stop_requested = false;
+    s_playing = false;
+}
+
 void alarm_sound_stop(void)
 {
     s_stop_requested = true;

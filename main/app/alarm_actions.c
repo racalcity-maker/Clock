@@ -22,10 +22,6 @@ static void alarm_actions_resume_now(app_ui_mode_t resume_mode, bool resume_play
         }
         audio_player_play();
     } else if (resume_mode == APP_UI_MODE_BLUETOOTH && resume_bt) {
-        if (!bt_app_core_reserve_ringbuffer(64 * 1024)) {
-            bt_app_core_reserve_ringbuffer(24 * 1024);
-        }
-        bt_app_core_reset_ringbuffer();
         if (bt_avrc_is_connected()) {
             bt_avrc_send_command(BT_AVRC_CMD_PLAY);
         }

@@ -27,6 +27,7 @@ static uint8_t s_alarm_volume = 1;
 
 static void alarm_play_cycle(void);
 static void alarm_playback_task(void *arg);
+static void alarm_playback_deinit(bool from_task);
 
 typedef enum {
     ALARM_CMD_PLAY_CYCLE,
@@ -189,6 +190,10 @@ static void alarm_playback_task(void *arg)
             audio_stop();
             audio_i2s_write_silence(50);
             audio_i2s_reset();
+            if (s_repeat_done >= s_repeat_total) {
+                alarm_playback_deinit(true);
+                return;
+            }
         } else if (cmd == ALARM_CMD_STOP) {
             alarm_sound_stop();
             alarm_tone_stop();
@@ -237,17 +242,46 @@ void alarm_playback_start(const app_config_t *cfg)
     }
 }
 
-void alarm_playback_stop(void)
+static void alarm_playback_deinit(bool from_task)
 {
     s_active = false;
     alarm_stop_repeat_timer();
     alarm_stop_stop_timer();
     alarm_sound_stop();
     alarm_tone_stop();
-    audio_i2s_write_silence(100);
+    audio_stop();
+    audio_i2s_write_silence(50);
     audio_i2s_reset();
-    if (s_alarm_queue) {
-        alarm_cmd_t cmd = ALARM_CMD_STOP;
-        xQueueSend(s_alarm_queue, &cmd, 0);
+    alarm_sound_deinit();
+
+    if (s_repeat_timer) {
+        esp_timer_delete(s_repeat_timer);
+        s_repeat_timer = NULL;
     }
+    if (s_stop_timer) {
+        esp_timer_delete(s_stop_timer);
+        s_stop_timer = NULL;
+    }
+
+    QueueHandle_t queue = s_alarm_queue;
+    s_alarm_queue = NULL;
+    TaskHandle_t task = s_alarm_task;
+    s_alarm_task = NULL;
+    s_repeat_done = 0;
+
+    if (queue) {
+        vQueueDelete(queue);
+    }
+    if (task) {
+        if (from_task || task == xTaskGetCurrentTaskHandle()) {
+            vTaskDelete(NULL);
+        } else {
+            vTaskDelete(task);
+        }
+    }
+}
+
+void alarm_playback_stop(void)
+{
+    alarm_playback_deinit(false);
 }

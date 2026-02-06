@@ -8,6 +8,7 @@ extern "C" {
 #endif
 
 void alarm_sound_init(void);
+void alarm_sound_deinit(void);
 void alarm_sound_stop(void);
 bool alarm_sound_is_playing(void);
 uint8_t alarm_sound_get_file_count(void);
