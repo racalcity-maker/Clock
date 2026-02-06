@@ -75,7 +75,7 @@ static void wifi_shutdown_task(void *arg)
         if (s_wifi_driver_inited) {
             esp_err_t err = esp_wifi_deinit();
             if (err != ESP_OK) {
-                ESP_LOGW(TAG, "wifi deinit failed: %s", esp_err_to_name(err));
+                ESP_LOGD(TAG, "wifi deinit failed: %s", esp_err_to_name(err));
             } else {
                 s_wifi_driver_inited = false;
             }
@@ -106,7 +106,7 @@ static void wifi_start_sntp(void)
     esp_sntp_setservername(0, "pool.ntp.org");
     esp_sntp_init();
     s_sntp_started = true;
-    ESP_LOGI(TAG, "sntp started");
+    ESP_LOGD(TAG, "sntp started");
 }
 
 static void sntp_sync_cb(struct timeval *tv)
@@ -117,6 +117,7 @@ static void sntp_sync_cb(struct timeval *tv)
     s_last_sync_time = tv->tv_sec;
     s_last_sync_valid = true;
     clock_time_mark_valid();
+    ESP_LOGI(TAG, "time sync ok");
     wifi_schedule_disable_after_sync();
 }
 
@@ -262,7 +263,7 @@ static void wifi_restart_to_ap(void)
     if (s_wifi_driver_inited) {
         esp_err_t err = esp_wifi_stop();
         if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_STARTED) {
-            ESP_LOGW(TAG, "wifi stop before ap fallback failed: %s", esp_err_to_name(err));
+            ESP_LOGD(TAG, "wifi stop before ap fallback failed: %s", esp_err_to_name(err));
         }
     }
     wifi_driver_start();
@@ -289,16 +290,16 @@ static bool wifi_try_connect(const char *reason)
     }
     if (s_connect_attempts >= WIFI_MAX_CONNECT_ATTEMPTS) {
         if (s_web_enabled && s_sta_connect_in_progress) {
-            ESP_LOGW(TAG, "wifi attempts exhausted, restoring AP setup mode");
+            ESP_LOGD(TAG, "wifi attempts exhausted, restoring AP setup mode");
             wifi_restart_to_ap();
             return false;
         }
-        ESP_LOGW(TAG, "wifi attempts exhausted, stopping wifi");
+        ESP_LOGD(TAG, "wifi attempts exhausted, stopping wifi");
         wifi_set_enabled(false);
         return false;
     }
     s_connect_attempts++;
-    ESP_LOGI(TAG, "wifi connect attempt %u/%u%s%s%s",
+    ESP_LOGD(TAG, "wifi connect attempt %u/%u%s%s%s",
              (unsigned)s_connect_attempts,
              (unsigned)WIFI_MAX_CONNECT_ATTEMPTS,
              reason ? " (" : "",
@@ -324,7 +325,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         wifi_event_sta_disconnected_t *disc = (wifi_event_sta_disconnected_t *)event_data;
         if (disc) {
-            ESP_LOGW(TAG, "wifi disconnected, reason=%d", (int)disc->reason);
+            ESP_LOGD(TAG, "wifi disconnected, reason=%d", (int)disc->reason);
             if (disc->reason == WIFI_REASON_AUTH_EXPIRE ||
                 disc->reason == WIFI_REASON_ASSOC_FAIL ||
                 disc->reason == WIFI_REASON_CONNECTION_FAIL) {
@@ -334,7 +335,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 return;
             }
         } else {
-            ESP_LOGW(TAG, "wifi disconnected, reason=unknown");
+            ESP_LOGD(TAG, "wifi disconnected, reason=unknown");
         }
         s_wifi_connected = false;
         wifi_clear_connected_bit();
@@ -347,10 +348,11 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
         wifi_stop_reconnect_timer();
         esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+        ESP_LOGI(TAG, "wifi connected");
         if (s_sta_connect_in_progress) {
             s_sta_connect_in_progress = false;
             wifi_mark_interface_connected();
-            ESP_LOGI(TAG, "wifi provisioning complete, interface disabled");
+            ESP_LOGD(TAG, "wifi provisioning complete, interface disabled");
         }
         wifi_start_sntp();
         wifi_start_web_if_ready();
@@ -510,11 +512,11 @@ esp_err_t wifi_init(const app_config_t *cfg)
 
     ESP_ERROR_CHECK(wifi_driver_start());
     if (s_ap_mode_active) {
-        ESP_LOGI(TAG, "wifi ap start");
+        ESP_LOGD(TAG, "wifi ap start");
     } else if (s_wifi_enabled) {
-        ESP_LOGI(TAG, "wifi sta start");
+        ESP_LOGD(TAG, "wifi sta start");
     } else {
-        ESP_LOGI(TAG, "wifi disabled");
+        ESP_LOGD(TAG, "wifi disabled");
     }
 
     clock_time_set_timezone(cfg->tz);
@@ -548,7 +550,7 @@ void wifi_set_enabled(bool enabled)
         if (s_wifi_driver_inited) {
             esp_err_t err = esp_wifi_stop();
             if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_INIT) {
-                ESP_LOGW(TAG, "wifi stop failed: %s", esp_err_to_name(err));
+                ESP_LOGD(TAG, "wifi stop failed: %s", esp_err_to_name(err));
             }
         }
         wifi_schedule_shutdown();
@@ -581,7 +583,7 @@ void wifi_set_web_enabled(bool enabled)
             if (s_ap_mode_active && s_wifi_driver_inited) {
                 esp_err_t stop_err = esp_wifi_stop();
                 if (stop_err != ESP_OK && stop_err != ESP_ERR_WIFI_NOT_STARTED) {
-                    ESP_LOGW(TAG, "wifi stop failed: %s", esp_err_to_name(stop_err));
+                    ESP_LOGD(TAG, "wifi stop failed: %s", esp_err_to_name(stop_err));
                 }
                 s_wifi_connected = false;
                 wifi_clear_connected_bit();
@@ -601,7 +603,7 @@ void wifi_set_web_enabled(bool enabled)
     } else if (!s_ap_mode_active && s_wifi_driver_inited) {
         esp_err_t stop_err = esp_wifi_stop();
         if (stop_err != ESP_OK && stop_err != ESP_ERR_WIFI_NOT_STARTED) {
-            ESP_LOGW(TAG, "wifi stop failed: %s", esp_err_to_name(stop_err));
+            ESP_LOGD(TAG, "wifi stop failed: %s", esp_err_to_name(stop_err));
         }
         s_wifi_connected = false;
         wifi_clear_connected_bit();
@@ -660,7 +662,7 @@ esp_err_t wifi_update_credentials(const char *ssid, const char *password)
     }
 
     if (!s_wifi_enabled) {
-        ESP_LOGI(TAG, "wifi credentials updated (stored)");
+        ESP_LOGD(TAG, "wifi credentials updated (stored)");
         return ESP_OK;
     }
 
@@ -681,9 +683,9 @@ esp_err_t wifi_update_credentials(const char *ssid, const char *password)
         return err;
     }
     if (s_has_sta) {
-        ESP_LOGI(TAG, "wifi credentials updated (sta)");
+        ESP_LOGD(TAG, "wifi credentials updated (sta)");
     } else {
-        ESP_LOGI(TAG, "wifi credentials cleared (ap)");
+        ESP_LOGD(TAG, "wifi credentials cleared (ap)");
     }
     return ESP_OK;
 }

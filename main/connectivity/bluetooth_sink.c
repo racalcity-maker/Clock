@@ -71,7 +71,7 @@ static void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
         return;
     }
     switch (event) {
-        case ESP_A2D_CONNECTION_STATE_EVT:
+        case ESP_A2D_CONNECTION_STATE_EVT: {
             ESP_LOGD(TAG, "a2dp conn state=%d", param->conn_stat.state);
             bool was_connected = s_bt_connected;
             if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
@@ -86,7 +86,7 @@ static void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
                 if (s_discoverable_requested) {
                     esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
                 }
-            } else {
+            } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
                 s_bt_connected = false;
                 memset(s_connected_bda, 0, sizeof(s_connected_bda));
                 s_bt_streaming = false;
@@ -101,6 +101,7 @@ static void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
                 }
             }
             break;
+        }
         case ESP_A2D_AUDIO_STATE_EVT:
             ESP_LOGD(TAG, "a2dp audio state=%d", param->audio_stat.state);
             s_bt_streaming = (param->audio_stat.state == ESP_A2D_AUDIO_STATE_STARTED);
