@@ -30,6 +30,8 @@ static bool s_bt_connected = false;
 static bool s_bt_ready = false;
 static bool s_discoverable_requested = false;
 static esp_bd_addr_t s_connected_bda = {0};
+static esp_bd_addr_t s_last_bda = {0};
+static bool s_last_bda_valid = false;
 static uint8_t s_pm_id = BTM_PM_SET_ONLY_ID;
 static esp_a2d_audio_state_t s_a2d_audio_state = ESP_A2D_AUDIO_STATE_SUSPEND;
 static bool s_gap_cb_registered = false;
@@ -77,6 +79,8 @@ static void bt_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
             if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
                 s_bt_connected = true;
                 memcpy(s_connected_bda, param->conn_stat.remote_bda, sizeof(esp_bd_addr_t));
+                memcpy(s_last_bda, param->conn_stat.remote_bda, sizeof(esp_bd_addr_t));
+                s_last_bda_valid = true;
                 if (!was_connected) {
                     audio_play_system_tone(AUDIO_SYS_TONE_BT_CONNECT);
                 }
@@ -175,6 +179,10 @@ static void bt_drop_bond(const esp_bd_addr_t bda)
     }
     esp_bd_addr_t addr;
     memcpy(addr, bda, sizeof(addr));
+    if (s_last_bda_valid && memcmp(s_last_bda, bda, sizeof(s_last_bda)) == 0) {
+        memset(s_last_bda, 0, sizeof(s_last_bda));
+        s_last_bda_valid = false;
+    }
     esp_err_t err = esp_bt_gap_remove_bond_device(addr);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "remove bond failed: %s", esp_err_to_name(err));
@@ -193,6 +201,11 @@ static inline int64_t bt_last_audio_get(void)
 
 static bool bt_get_last_bonded(esp_bd_addr_t out)
 {
+    if (s_last_bda_valid) {
+        memcpy(out, s_last_bda, sizeof(s_last_bda));
+        return true;
+    }
+
     int dev_num = esp_bt_gap_get_bond_device_num();
     if (dev_num <= 0) {
         return false;
@@ -491,7 +504,7 @@ bool bt_sink_has_saved_device(void)
     if (!s_bt_ready) {
         return false;
     }
-    return esp_bt_gap_get_bond_device_num() > 0;
+    return s_last_bda_valid || (esp_bt_gap_get_bond_device_num() > 0);
 }
 
 esp_err_t bt_sink_try_connect_last(void)
@@ -592,6 +605,8 @@ esp_err_t bt_sink_clear_bonds(void)
         }
     }
     free(dev_list);
+    memset(s_last_bda, 0, sizeof(s_last_bda));
+    s_last_bda_valid = false;
     return err;
 #else
     return ESP_ERR_NOT_SUPPORTED;

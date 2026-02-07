@@ -69,6 +69,8 @@ void app_main(void)
 {
     esp_log_level_set("coexist", ESP_LOG_ERROR);
     esp_log_level_set("gpio", ESP_LOG_WARN);
+    esp_log_level_set("esp_netif_handlers", ESP_LOG_ERROR);
+    esp_log_level_set("wifi", ESP_LOG_ERROR);
     esp_log_level_set("BTDM_INIT", ESP_LOG_ERROR);
     esp_log_level_set("BT_HCI", ESP_LOG_ERROR);
     esp_log_level_set("BT_APPL", ESP_LOG_ERROR);
