@@ -194,8 +194,20 @@ esp_err_t radio_rda5807_init(void)
     s_regw[REG02_HI] = 0x00;
     s_regw[REG02_LO] = 0x02; // soft reset
     radio_lock();
-    (void)radio_write_regs(2);
+    err = radio_write_regs(2);
     radio_unlock();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "radio reset write failed: %s", esp_err_to_name(err));
+        if (s_dev) {
+            i2c_master_bus_rm_device(s_dev);
+            s_dev = NULL;
+        }
+        if (s_bus) {
+            i2c_del_master_bus(s_bus);
+            s_bus = NULL;
+        }
+        return err;
+    }
     vTaskDelay(pdMS_TO_TICKS(50));
 
     uint8_t chip_id[10] = {0};
@@ -249,6 +261,10 @@ void radio_rda5807_deinit(void)
     }
     s_bus = NULL;
     s_ready = false;
+    if (s_lock) {
+        vSemaphoreDelete(s_lock);
+        s_lock = NULL;
+    }
 }
 
 bool radio_rda5807_is_ready(void)
@@ -296,7 +312,6 @@ void radio_rda5807_set_volume_steps(uint8_t steps)
     uint8_t vol = radio_volume_from_steps(steps);
     radio_lock();
     s_regw[REG05_LO] = (uint8_t)((s_regw[REG05_LO] & 0xF0U) | (vol & 0x0FU));
-    s_regw[REG03_LO] &= (uint8_t)~REG03_TUNE_MASK;
     (void)radio_write_regs(8);
     radio_unlock();
 }
