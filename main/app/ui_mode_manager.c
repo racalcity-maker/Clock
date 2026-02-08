@@ -11,6 +11,7 @@
 #include "display_bt_anim.h"
 #include "display_ui.h"
 #include "led_indicator.h"
+#include "radio_rda5807.h"
 #include "storage_sd_spi.h"
 #include "ui_display_task.h"
 #include "web_config.h"
@@ -24,6 +25,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
+#include <stdint.h>
 #include <string.h>
 
 // Temporary test mode: cycles UI modes every 10 seconds.
@@ -45,7 +47,8 @@ static bool s_bt_idle_timer_active = false;
 typedef enum {
     UI_MODE_CLOCK,
     UI_MODE_PLAYER,
-    UI_MODE_BLUETOOTH
+    UI_MODE_BLUETOOTH,
+    UI_MODE_RADIO
 } ui_mode_t;
 
 static ui_mode_t s_ui_mode = UI_MODE_CLOCK;
@@ -59,6 +62,7 @@ static bool s_web_stop_pending = false;
 static volatile int64_t s_ui_busy_until_us = 0;
 static volatile bool s_ui_busy_force = false;
 static int64_t s_next_heap_log_us = 0;
+static uint32_t s_radio_seek_gen = 0;
 #if UI_MODE_TEST_CYCLE
 static TaskHandle_t s_ui_test_task = NULL;
 #endif
@@ -94,12 +98,14 @@ static void web_config_stop_deferred(void);
 static void enter_clock_mode(void);
 static void enter_player_mode(void);
 static void enter_bluetooth_mode(void);
+static void enter_radio_mode(void);
 static void stop_player_and_flush(void);
 static void wait_for_heap_release(uint32_t settle_ms, uint32_t timeout_ms);
 static void ui_mode_log_heap(const char *tag);
 static void bt_idle_timer_cb(void *arg);
 static void bt_idle_timer_start(void);
 static void bt_idle_timer_stop(void);
+static void radio_seek_task(void *arg);
 
 static void ui_mode_log_heap(const char *tag)
 {
@@ -150,6 +156,22 @@ static void bt_idle_timer_stop(void)
         esp_timer_stop(s_bt_idle_timer);
     }
     s_bt_idle_timer_active = false;
+}
+
+static void radio_seek_task(void *arg)
+{
+    uint32_t gen = (uint32_t)(uintptr_t)arg;
+    vTaskDelay(pdMS_TO_TICKS(radio_rda5807_get_init_seek_delay_ms()));
+    if (gen != __atomic_load_n(&s_radio_seek_gen, __ATOMIC_ACQUIRE)) {
+        vTaskDelete(NULL);
+        return;
+    }
+    if (app_get_ui_mode() != APP_UI_MODE_RADIO || !radio_rda5807_is_ready()) {
+        vTaskDelete(NULL);
+        return;
+    }
+    (void)radio_rda5807_autoseek(true);
+    vTaskDelete(NULL);
 }
 
 
@@ -260,6 +282,9 @@ app_ui_mode_t app_get_ui_mode(void)
     }
     if (s_ui_mode == UI_MODE_BLUETOOTH) {
         return APP_UI_MODE_BLUETOOTH;
+    }
+    if (s_ui_mode == UI_MODE_RADIO) {
+        return APP_UI_MODE_RADIO;
     }
     return APP_UI_MODE_CLOCK;
 }
@@ -397,6 +422,8 @@ void app_set_ui_mode(app_ui_mode_t mode)
         new_mode = UI_MODE_PLAYER;
     } else if (mode == APP_UI_MODE_BLUETOOTH) {
         new_mode = UI_MODE_BLUETOOTH;
+    } else if (mode == APP_UI_MODE_RADIO) {
+        new_mode = UI_MODE_RADIO;
     }
     if (s_ui_mode_initialized && s_ui_mode == new_mode) {
         return;
@@ -414,6 +441,10 @@ void app_set_ui_mode(app_ui_mode_t mode)
         label = "BLUE";
         enter_bluetooth_mode();
         led_indicator_set_seconds_rgb(0, 160, 255);
+    } else if (s_ui_mode == UI_MODE_RADIO) {
+        label = "RAD ";
+        enter_radio_mode();
+        led_indicator_set_seconds_rgb(0, 200, 80);
     } else {
         enter_clock_mode();
         led_indicator_set_seconds_rgb(255, 0, 0);
@@ -429,6 +460,7 @@ static void enter_clock_mode(void)
 {
     display_pause_refresh(true);
     bt_idle_timer_stop();
+    radio_rda5807_deinit();
     stop_player_and_flush();
     if (bt_sink_is_ready()) {
         bt_sink_set_discoverable(false);
@@ -450,6 +482,7 @@ static void enter_player_mode(void)
 {
     display_pause_refresh(true);
     bt_idle_timer_stop();
+    radio_rda5807_deinit();
     if (bt_sink_is_ready()) {
         if (bt_sink_is_connected() || bt_avrc_is_connected()) {
             bt_sink_disconnect();
@@ -479,6 +512,7 @@ static void enter_player_mode(void)
 static void enter_bluetooth_mode(void)
 {
     display_pause_refresh(true);
+    radio_rda5807_deinit();
     s_bt_connected_state = bt_sink_is_connected() || bt_avrc_is_connected();
     if (s_bt_connected_state) {
         bt_idle_timer_stop();
@@ -539,6 +573,33 @@ static void enter_bluetooth_mode(void)
     }
 }
 
+static void enter_radio_mode(void)
+{
+    display_pause_refresh(true);
+    bt_idle_timer_stop();
+    stop_player_and_flush();
+    if (bt_sink_is_ready()) {
+        bt_sink_set_discoverable(false);
+        if (bt_sink_is_connected() || bt_avrc_is_connected()) {
+            bt_sink_disconnect();
+        }
+    }
+    bt_i2s_task_shut_down();
+    bt_app_core_release_ringbuffer();
+    bt_sink_deinit();
+    audio_spectrum_enable(false);
+
+    if (radio_rda5807_init() == ESP_OK) {
+        if (s_cfg) {
+            radio_rda5807_set_volume_steps(s_cfg->volume);
+        }
+        uint32_t gen = __atomic_add_fetch(&s_radio_seek_gen, 1, __ATOMIC_ACQ_REL);
+        xTaskCreate(radio_seek_task, "radio_seek", 2048, (void *)(uintptr_t)gen, 5, NULL);
+    }
+
+    display_pause_refresh(false);
+}
+
 static void stop_player_and_flush(void)
 {
     if (!audio_player_is_ready()) {
@@ -586,7 +647,8 @@ static void ui_test_cycle_task(void *arg)
     const app_ui_mode_t modes[] = {
         APP_UI_MODE_CLOCK,
         APP_UI_MODE_PLAYER,
-        APP_UI_MODE_BLUETOOTH
+        APP_UI_MODE_BLUETOOTH,
+        APP_UI_MODE_RADIO
     };
     size_t idx = 0;
     vTaskDelay(pdMS_TO_TICKS(UI_MODE_TEST_INTERVAL_MS));

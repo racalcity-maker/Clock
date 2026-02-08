@@ -38,6 +38,7 @@ idf_component_register(
         "input/encoder.c"
         "led/led_indicator.c"
         "led/led_strip_encoder.c"
+        "radio/radio_rda5807.c"
         "storage/storage_sd_spi.c"
         "config/config_store.c"
         "config/config_owner.c"
@@ -52,6 +53,7 @@ idf_component_register(
         "connectivity"
         "input"
         "led"
+        "radio"
         "storage"
         "power"
         "${HELIX_DIR}"
@@ -70,6 +72,7 @@ idf_component_register(
         esp_netif
         esp_wifi
         esp_driver_gpio
+        esp_driver_i2c
         esp_driver_rmt
         esp_driver_spi
         fatfs

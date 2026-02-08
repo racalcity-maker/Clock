@@ -97,7 +97,7 @@ esp_err_t config_store_init(void)
     if (s_cfg.alarm_repeat < 1 || s_cfg.alarm_repeat > 5) {
         s_cfg.alarm_repeat = 1;
     }
-    if (s_cfg.ui_mode > 2) {
+    if (s_cfg.ui_mode > 3) {
         s_cfg.ui_mode = 0;
     }
     if (s_cfg.web_enabled != true && s_cfg.web_enabled != false) {

@@ -10,6 +10,7 @@
 #include "display_74hc595.h"
 #include "display_ui.h"
 #include "led_indicator.h"
+#include "radio_rda5807.h"
 #include "ui_display_task.h"
 #include "ui_menu.h"
 #include "ui_time_setting.h"
@@ -46,6 +47,8 @@ static void soft_power_apply(bool off)
     if (*s_soft_off) {
         audio_player_stop();
         audio_stop();
+        radio_rda5807_set_muted(true);
+        radio_rda5807_set_enabled(false);
         wifi_set_enabled(false);
         led_indicator_set_rgb(0, 25, 0);
         display_set_brightness(DISPLAY_DIM_LEVEL);
@@ -57,6 +60,10 @@ static void soft_power_apply(bool off)
     led_indicator_set_rgb(0, 0, 0);
     display_set_brightness(*s_display_brightness);
     wifi_set_enabled(true);
+    if (app_get_ui_mode() == APP_UI_MODE_RADIO) {
+        radio_rda5807_set_enabled(true);
+        radio_rda5807_set_muted(false);
+    }
 }
 
 static void ui_mode_cycle(void)
@@ -66,6 +73,8 @@ static void ui_mode_cycle(void)
         app_request_ui_mode(APP_UI_MODE_PLAYER);
     } else if (mode == APP_UI_MODE_PLAYER) {
         app_request_ui_mode(APP_UI_MODE_BLUETOOTH);
+    } else if (mode == APP_UI_MODE_BLUETOOTH) {
+        app_request_ui_mode(APP_UI_MODE_RADIO);
     } else {
         app_request_ui_mode(APP_UI_MODE_CLOCK);
     }
@@ -163,6 +172,7 @@ void ui_input_handle_encoder(encoder_event_t event)
         uint8_t scaled = app_volume_steps_to_byte(*s_volume_level);
         audio_set_volume(scaled);
         audio_player_set_volume(scaled);
+        radio_rda5807_set_volume_steps(*s_volume_level);
         bt_avrc_notify_volume(scaled);
         ui_display_task_mark_volume_dirty();
         ui_display_task_show_volume(*s_volume_level);
@@ -223,6 +233,8 @@ void ui_input_handle_adc_key(adc_key_id_t key, adc_key_event_t event)
                     audio_player_prev();
                 }
             }
+        } else if (app_get_ui_mode() == APP_UI_MODE_RADIO) {
+            radio_rda5807_step(key == ADC_KEY_NEXT);
         }
         return;
     }

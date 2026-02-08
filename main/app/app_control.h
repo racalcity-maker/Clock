@@ -10,7 +10,8 @@ extern "C" {
 typedef enum {
     APP_UI_MODE_CLOCK = 0,
     APP_UI_MODE_PLAYER = 1,
-    APP_UI_MODE_BLUETOOTH = 2
+    APP_UI_MODE_BLUETOOTH = 2,
+    APP_UI_MODE_RADIO = 3
 } app_ui_mode_t;
 
 #define APP_VOLUME_MAX 30U

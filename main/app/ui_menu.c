@@ -30,6 +30,7 @@ typedef enum {
     MENU_ROOT_CLOCK,
     MENU_ROOT_PLAYER,
     MENU_ROOT_BLUETOOTH,
+    MENU_ROOT_RADIO,
     MENU_ROOT_EQ,
     MENU_ROOT_SETTINGS,
     MENU_ROOT_COUNT
@@ -385,6 +386,9 @@ static void menu_render_root(void)
             break;
         case MENU_ROOT_BLUETOOTH:
             memcpy(text, "BLUE", 4);
+            break;
+        case MENU_ROOT_RADIO:
+            memcpy(text, "RAD ", 4);
             break;
         case MENU_ROOT_EQ:
             memcpy(text, "EqUA", 4);
@@ -742,6 +746,12 @@ ui_menu_action_t ui_menu_handle_encoder(encoder_event_t event, app_ui_mode_t *ou
                 case MENU_ROOT_BLUETOOTH:
                     if (out_mode) {
                         *out_mode = APP_UI_MODE_BLUETOOTH;
+                    }
+                    ui_menu_exit();
+                    return UI_MENU_ACTION_SET_MODE;
+                case MENU_ROOT_RADIO:
+                    if (out_mode) {
+                        *out_mode = APP_UI_MODE_RADIO;
                     }
                     ui_menu_exit();
                     return UI_MENU_ACTION_SET_MODE;

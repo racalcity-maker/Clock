@@ -11,6 +11,7 @@
 #include "display_74hc595.h"
 #include "display_bt_anim.h"
 #include "display_ui.h"
+#include "radio_rda5807.h"
 #include "storage_sd_spi.h"
 #include "ui_menu.h"
 #include "ui_time_setting.h"
@@ -26,6 +27,7 @@ static const uint32_t TRACK_NUMBER_MS = 5000;
 static const uint32_t TRACK_REMAIN_UPDATE_MS = 1000;
 static const uint32_t TRACK_OVERLAY_PERIOD_MS = 60000;
 static const uint32_t VOLUME_OVERLAY_MS = 800;
+static const uint32_t RADIO_FREQ_SHOW_MS = 10000;
 
 typedef enum {
     TRACK_OVERLAY_NONE,
@@ -59,6 +61,8 @@ static volatile bool s_overlays_enabled = true;
 static uint8_t s_last_hours = 0;
 static uint8_t s_last_minutes = 0;
 static bool s_last_colon = false;
+static int64_t s_radio_show_until_us = 0;
+static uint32_t s_radio_last_freq = 0;
 
 static void schedule_player_status(int64_t now_us)
 {
@@ -141,6 +145,17 @@ static void show_volume_level(uint8_t volume)
     display_ui_show_text(text, VOLUME_OVERLAY_MS);
 }
 
+static void show_radio_frequency(uint32_t freq_khz)
+{
+    uint16_t mhz_x10 = (uint16_t)(freq_khz / 100U);
+    if (mhz_x10 > 9999) {
+        mhz_x10 = 9999;
+    }
+    char text[5];
+    snprintf(text, sizeof(text), "%4u", (unsigned)mhz_x10);
+    display_set_text(text, false);
+}
+
 void ui_display_task_mark_volume_dirty(void)
 {
     s_volume_dirty = true;
@@ -217,6 +232,7 @@ static void display_task(void *arg)
                 uint8_t scaled = app_volume_steps_to_byte(steps);
                 audio_set_volume(scaled);
                 audio_player_set_volume(scaled);
+                radio_rda5807_set_volume_steps(steps);
                 show_volume_level(steps);
                 ui_display_task_mark_volume_dirty();
             }
@@ -289,11 +305,36 @@ static void display_task(void *arg)
         app_ui_mode_t mode = app_get_ui_mode();
         if (mode != s_last_mode) {
             s_last_mode = mode;
+            int64_t now_us = esp_timer_get_time();
             if (mode == APP_UI_MODE_PLAYER) {
-                schedule_player_status(esp_timer_get_time());
+                schedule_player_status(now_us);
             } else {
                 s_post_mode_pending = false;
             }
+            if (mode == APP_UI_MODE_RADIO) {
+                uint32_t freq = radio_rda5807_get_frequency_khz();
+                s_radio_last_freq = freq;
+                s_radio_show_until_us = now_us + (int64_t)RADIO_FREQ_SHOW_MS * 1000;
+            }
+        }
+        if (mode == APP_UI_MODE_RADIO) {
+            int64_t now_us = esp_timer_get_time();
+            uint32_t freq = radio_rda5807_get_frequency_khz();
+            if (freq != s_radio_last_freq) {
+                s_radio_last_freq = freq;
+                s_radio_show_until_us = now_us + (int64_t)RADIO_FREQ_SHOW_MS * 1000;
+            }
+            if (display_ui_overlay_active()) {
+                display_ui_render();
+            } else if (now_us < s_radio_show_until_us) {
+                show_radio_frequency(freq);
+            } else {
+                render_clock_or_placeholder();
+            }
+            tick = (tick + 1) % 5;
+            vTaskDelay(pdMS_TO_TICKS(100));
+            s_last_music_playing = false;
+            continue;
         }
         bool music_playing = music_is_playing(mode);
         bool bt_streaming = (mode == APP_UI_MODE_BLUETOOTH) ? bt_sink_is_streaming() : false;
