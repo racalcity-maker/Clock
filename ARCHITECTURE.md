@@ -1,6 +1,6 @@
 ﻿# Architecture
 
-This project is an ESP32 clock/audio device with a 4x7-segment display (74HC595), Bluetooth A2DP sink, local SD player, Wi-Fi config/time sync, and alarms. Firmware is organized into modules under `main/`.
+This project is an ESP32 clock/audio device with a 4x7-segment display (74HC595), Bluetooth A2DP sink, local SD player, FM radio, Wi-Fi config/time sync, and alarms. Firmware is organized into modules under `main/`.
 
 ## High-level flow
 - `app_main.c` boots NVS/config, initializes subsystems, starts tasks, and sets the initial UI mode.
@@ -18,6 +18,7 @@ This project is an ESP32 clock/audio device with a 4x7-segment display (74HC595)
   - Shared UI mode enum and helpers (`app_get_ui_mode`, `app_set_ui_mode`, `app_request_ui_mode`).
 - `config_store.*`
   - Loads/saves persistent configuration (volume, EQ, brightness, alarm, timezone, etc.).
+  - Stores FM station presets (MHz * 10) in NVS.
 - `config_owner.*`
   - Single-writer owner task for `app_config_t` updates.
   - All runtime writes go through `config_owner_request_update`.
@@ -48,6 +49,7 @@ This project is an ESP32 clock/audio device with a 4x7-segment display (74HC595)
   - Chooses alarm source by mode:
     - Clock/Player: MP3 from SD via `alarm_sound` if files exist.
     - Bluetooth: built-in tone via `alarm_tone` (no SD or MP3).
+    - Radio: mutes/disables FM during alarm, then resumes.
 - `alarm_sound.*`
   - MP3 alarm playback from `/sdcard/alarm` (Helix).
   - Lazy-initialized task (created only on first use).
@@ -65,6 +67,9 @@ This project is an ESP32 clock/audio device with a 4x7-segment display (74HC595)
   - AVRCP control/metadata and absolute volume.
 - `audio_spectrum.*`
   - Lightweight 4-band visualizer (display only).
+- `radio_rda5807.*`
+  - FM tuner driver (RDA5807M, I2C).
+  - Hardware seek and frequency tuning.
 
 ## Storage and player
 - `storage/storage_sd_spi.*`
@@ -90,6 +95,7 @@ This project is an ESP32 clock/audio device with a 4x7-segment display (74HC595)
   - Thin wrapper to init encoder/ADC key drivers.
 - `ui_input_handlers.*`
   - Mode switching, volume control, playback controls, menu/time-setting entry.
+  - Radio: short NEXT/PREV cycles presets; long press triggers scan (when presets empty).
 - `ui_menu.*`
   - Menu rendering and interactions.
   - Alarm tone selection is blocked in Bluetooth mode and shows `frbd`.
@@ -114,6 +120,7 @@ This project is an ESP32 clock/audio device with a 4x7-segment display (74HC595)
 
 ## Data flow summary
 - Inputs (encoder/ADC) -> `ui_input_handlers` -> `app_request_ui_mode` / volume / menu / time set.
+- Radio controls -> `radio_rda5807` (I2C tune/seek).
 - BT A2DP -> `bt_app_av` -> ring buffer -> `bt_app_core` -> `audio_i2s_write` (EQ) -> I2S out.
 - Display task -> `display_ui` -> `display_74hc595`.
 - BT audio -> `audio_spectrum` -> `display_bt_anim`.
