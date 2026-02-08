@@ -8,6 +8,8 @@
 extern "C" {
 #endif
 
+#define RADIO_STATION_MAX 20
+
 typedef struct {
     char wifi_ssid[32];
     char wifi_pass[64];
@@ -27,6 +29,8 @@ typedef struct {
     uint8_t ui_mode;
     uint8_t alarm_repeat;
     bool web_enabled;
+    uint8_t radio_station_count;
+    uint16_t radio_stations[RADIO_STATION_MAX]; // MHz * 10 (e.g., 1017 => 101.7 MHz)
 } app_config_t;
 
 esp_err_t config_store_init(void);

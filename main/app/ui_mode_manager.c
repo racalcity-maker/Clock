@@ -25,7 +25,6 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
-#include <stdint.h>
 #include <string.h>
 
 // Temporary test mode: cycles UI modes every 10 seconds.
@@ -62,7 +61,6 @@ static bool s_web_stop_pending = false;
 static volatile int64_t s_ui_busy_until_us = 0;
 static volatile bool s_ui_busy_force = false;
 static int64_t s_next_heap_log_us = 0;
-static uint32_t s_radio_seek_gen = 0;
 #if UI_MODE_TEST_CYCLE
 static TaskHandle_t s_ui_test_task = NULL;
 #endif
@@ -105,7 +103,6 @@ static void ui_mode_log_heap(const char *tag);
 static void bt_idle_timer_cb(void *arg);
 static void bt_idle_timer_start(void);
 static void bt_idle_timer_stop(void);
-static void radio_seek_task(void *arg);
 
 static void ui_mode_log_heap(const char *tag)
 {
@@ -158,21 +155,6 @@ static void bt_idle_timer_stop(void)
     s_bt_idle_timer_active = false;
 }
 
-static void radio_seek_task(void *arg)
-{
-    uint32_t gen = (uint32_t)(uintptr_t)arg;
-    vTaskDelay(pdMS_TO_TICKS(radio_rda5807_get_init_seek_delay_ms()));
-    if (gen != __atomic_load_n(&s_radio_seek_gen, __ATOMIC_ACQUIRE)) {
-        vTaskDelete(NULL);
-        return;
-    }
-    if (app_get_ui_mode() != APP_UI_MODE_RADIO || !radio_rda5807_is_ready()) {
-        vTaskDelete(NULL);
-        return;
-    }
-    (void)radio_rda5807_autoseek(true);
-    vTaskDelete(NULL);
-}
 
 
 static void ui_cmd_start(void)
@@ -592,9 +574,13 @@ static void enter_radio_mode(void)
     if (radio_rda5807_init() == ESP_OK) {
         if (s_cfg) {
             radio_rda5807_set_volume_steps(s_cfg->volume);
+            if (s_cfg->radio_station_count > 0) {
+                uint16_t freq = s_cfg->radio_stations[0];
+                if (freq >= 870 && freq <= 1080) {
+                    radio_rda5807_tune_khz((uint32_t)freq * 100U);
+                }
+            }
         }
-        uint32_t gen = __atomic_add_fetch(&s_radio_seek_gen, 1, __ATOMIC_ACQ_REL);
-        xTaskCreate(radio_seek_task, "radio_seek", 2048, (void *)(uintptr_t)gen, 5, NULL);
     }
 
     display_pause_refresh(false);

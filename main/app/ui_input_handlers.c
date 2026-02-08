@@ -11,10 +11,13 @@
 #include "display_ui.h"
 #include "led_indicator.h"
 #include "radio_rda5807.h"
+#include "config_owner.h"
 #include "ui_display_task.h"
 #include "ui_menu.h"
 #include "ui_time_setting.h"
 #include "wifi_ntp.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static app_config_t *s_cfg = NULL;
 static uint8_t *s_volume_level = NULL;
@@ -22,6 +25,88 @@ static uint8_t *s_display_brightness = NULL;
 static bool *s_soft_off = NULL;
 static bool *s_alarm_active = NULL;
 static const uint8_t DISPLAY_DIM_LEVEL = 10;
+static uint8_t s_radio_station_index = 0;
+static volatile bool s_radio_scan_active = false;
+
+static void radio_scan_task(void *arg)
+{
+    (void)arg;
+    if (!s_cfg || !radio_rda5807_is_ready()) {
+        s_radio_scan_active = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    app_config_t cfg = *s_cfg;
+    if (cfg.radio_station_count > 0) {
+        s_radio_scan_active = false;
+        vTaskDelete(NULL);
+        return;
+    }
+
+    display_ui_show_text("SCAN", 1000);
+
+    uint16_t found[RADIO_STATION_MAX] = {0};
+    uint8_t count = 0;
+    uint16_t first = 0;
+    uint16_t last = 0;
+
+    radio_rda5807_tune_khz(RADIO_FREQ_MIN_KHZ);
+    vTaskDelay(pdMS_TO_TICKS(120));
+
+    for (uint8_t attempts = 0; attempts < RADIO_STATION_MAX * 2; ++attempts) {
+        if (!radio_rda5807_autoseek(true)) {
+            break;
+        }
+        uint32_t freq_khz = radio_rda5807_get_frequency_khz();
+        uint16_t mhz_x10 = (uint16_t)(freq_khz / 100U);
+        if (mhz_x10 < 870 || mhz_x10 > 1080) {
+            continue;
+        }
+        if (count > 0 && mhz_x10 <= first) {
+            break;
+        }
+        if (count > 0 && mhz_x10 == last) {
+            break;
+        }
+        bool dup = false;
+        for (uint8_t i = 0; i < count; ++i) {
+            if (found[i] == mhz_x10) {
+                dup = true;
+                break;
+            }
+        }
+        if (dup) {
+            continue;
+        }
+        if (count == 0) {
+            first = mhz_x10;
+        }
+        found[count++] = mhz_x10;
+        last = mhz_x10;
+        if (count >= RADIO_STATION_MAX) {
+            break;
+        }
+    }
+
+    if (count > 0) {
+        cfg.radio_station_count = count;
+        for (uint8_t i = 0; i < RADIO_STATION_MAX; ++i) {
+            cfg.radio_stations[i] = (i < count) ? found[i] : 0;
+        }
+        if (config_owner_request_update(&cfg)) {
+            display_ui_show_text("SAVE", 1200);
+        } else {
+            display_ui_show_text("Er  ", 1200);
+        }
+        s_radio_station_index = 0;
+        radio_rda5807_tune_khz((uint32_t)found[0] * 100U);
+    } else {
+        display_ui_show_text("NONE", 1200);
+    }
+
+    s_radio_scan_active = false;
+    vTaskDelete(NULL);
+}
 
 static void alarm_acknowledge(void)
 {
@@ -220,23 +305,57 @@ void ui_input_handle_adc_key(adc_key_id_t key, adc_key_event_t event)
         return;
     }
 
-    if ((key == ADC_KEY_NEXT || key == ADC_KEY_PREV) && event == ADC_KEY_EVENT_SHORT) {
-        if (app_get_ui_mode() == APP_UI_MODE_BLUETOOTH) {
-            if (bt_avrc_is_connected()) {
-                bt_avrc_send_command(key == ADC_KEY_NEXT ? BT_AVRC_CMD_NEXT : BT_AVRC_CMD_PREV);
+    if (key == ADC_KEY_NEXT || key == ADC_KEY_PREV) {
+        if (event == ADC_KEY_EVENT_LONG && app_get_ui_mode() == APP_UI_MODE_RADIO) {
+            if (s_radio_scan_active) {
+                display_ui_show_text("SCAN", 800);
+                return;
             }
-        } else if (app_get_ui_mode() == APP_UI_MODE_PLAYER) {
-            if (audio_player_get_state() != PLAYER_STATE_STOPPED) {
-                if (key == ADC_KEY_NEXT) {
-                    audio_player_next();
+            if (s_cfg && s_cfg->radio_station_count > 0) {
+                display_ui_show_text("HAVE", 1200);
+                return;
+            }
+            s_radio_scan_active = true;
+            if (xTaskCreate(radio_scan_task, "radio_scan", 4096, NULL, 5, NULL) != pdPASS) {
+                s_radio_scan_active = false;
+                display_ui_show_text("Er  ", 1200);
+            }
+            return;
+        }
+        if (event == ADC_KEY_EVENT_SHORT) {
+            if (app_get_ui_mode() == APP_UI_MODE_BLUETOOTH) {
+                if (bt_avrc_is_connected()) {
+                    bt_avrc_send_command(key == ADC_KEY_NEXT ? BT_AVRC_CMD_NEXT : BT_AVRC_CMD_PREV);
+                }
+            } else if (app_get_ui_mode() == APP_UI_MODE_PLAYER) {
+                if (audio_player_get_state() != PLAYER_STATE_STOPPED) {
+                    if (key == ADC_KEY_NEXT) {
+                        audio_player_next();
+                    } else {
+                        audio_player_prev();
+                    }
+                }
+            } else if (app_get_ui_mode() == APP_UI_MODE_RADIO) {
+                if (s_cfg && s_cfg->radio_station_count > 0) {
+                    uint8_t count = s_cfg->radio_station_count;
+                    if (s_radio_station_index >= count) {
+                        s_radio_station_index = 0;
+                    }
+                    if (key == ADC_KEY_NEXT) {
+                        s_radio_station_index = (uint8_t)((s_radio_station_index + 1U) % count);
+                    } else {
+                        s_radio_station_index = (uint8_t)((s_radio_station_index + count - 1U) % count);
+                    }
+                    uint16_t mhz_x10 = s_cfg->radio_stations[s_radio_station_index];
+                    if (mhz_x10 >= 870 && mhz_x10 <= 1080) {
+                        radio_rda5807_tune_khz((uint32_t)mhz_x10 * 100U);
+                    }
                 } else {
-                    audio_player_prev();
+                    radio_rda5807_step(key == ADC_KEY_NEXT);
                 }
             }
-        } else if (app_get_ui_mode() == APP_UI_MODE_RADIO) {
-            radio_rda5807_step(key == ADC_KEY_NEXT);
+            return;
         }
-        return;
     }
 
     if (key == ADC_KEY_BT && event == ADC_KEY_EVENT_LONG) {

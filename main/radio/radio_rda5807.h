@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "esp_err.h"
 
+#define RADIO_FREQ_MIN_KHZ 87000U
+#define RADIO_FREQ_MAX_KHZ 108000U
+#define RADIO_FREQ_STEP_KHZ 100U
+
 esp_err_t radio_rda5807_init(void);
 void radio_rda5807_deinit(void);
 bool radio_rda5807_is_ready(void);

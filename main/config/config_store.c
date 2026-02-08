@@ -4,6 +4,7 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "nvs.h"
+#include "stdlib.h"
 #include "string.h"
 
 #define NVS_NAMESPACE "clock"
@@ -20,8 +21,24 @@ static esp_err_t config_load_from_nvs(app_config_t *out)
     }
 
     config_set_defaults(out);
-    size_t size = sizeof(*out);
-    err = nvs_get_blob(nvs, "cfg", out, &size);
+    size_t size = 0;
+    err = nvs_get_blob(nvs, "cfg", NULL, &size);
+    if (err != ESP_OK) {
+        nvs_close(nvs);
+        return err;
+    }
+
+    uint8_t *buf = (uint8_t *)malloc(size);
+    if (!buf) {
+        nvs_close(nvs);
+        return ESP_ERR_NO_MEM;
+    }
+    err = nvs_get_blob(nvs, "cfg", buf, &size);
+    if (err == ESP_OK) {
+        size_t copy = size < sizeof(*out) ? size : sizeof(*out);
+        memcpy(out, buf, copy);
+    }
+    free(buf);
     nvs_close(nvs);
     return err;
 }
@@ -61,6 +78,10 @@ void config_set_defaults(app_config_t *cfg)
     cfg->power_save_enabled = false;
     cfg->ui_mode = 0;
     cfg->web_enabled = false;
+    cfg->radio_station_count = 0;
+    for (int i = 0; i < RADIO_STATION_MAX; ++i) {
+        cfg->radio_stations[i] = 0;
+    }
 }
 
 esp_err_t config_store_init(void)
@@ -102,6 +123,15 @@ esp_err_t config_store_init(void)
     }
     if (s_cfg.web_enabled != true && s_cfg.web_enabled != false) {
         s_cfg.web_enabled = false;
+    }
+    if (s_cfg.radio_station_count > RADIO_STATION_MAX) {
+        s_cfg.radio_station_count = 0;
+    }
+    for (int i = 0; i < s_cfg.radio_station_count; ++i) {
+        uint16_t freq = s_cfg.radio_stations[i];
+        if (freq < 870 || freq > 1080) {
+            s_cfg.radio_stations[i] = 0;
+        }
     }
     return ESP_OK;
 }
